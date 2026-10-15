@@ -1,6 +1,5 @@
 import { element, id, todayLocalISO, dateLabel, parseDateKey, getWeekKey, getMonthKey, clamp } from './utils.js';
 import { icon } from './icons.js';
-import { XP_BY_DIFF } from './state.js';
 import { getRankByLevel, addXp, xpForHabit, completePenaltyTasks, awaken } from './gamification.js';
 import { migrate } from './storage.js';
 
@@ -89,7 +88,7 @@ function progressCount(item, date = todayLocalISO()) {
   if (item.frequency === 'monthly') {
     const key = getMonthKey(parseDateKey(date));
     const count = Object.entries(state.completions).filter(([day, value]) => getMonthKey(parseDateKey(day)) === key && value.habits?.includes(item.id)).length;
-    return { count, target: Number(item.monthlyTarget || 1), label: 'este mes' };
+    return { count, label: 'veces este mes' };
   }
   return { count: state.completions[date]?.habits?.includes(item.id) ? 1 : 0, target: 1, label: 'hoy' };
 }
@@ -106,7 +105,10 @@ function toggleCompletion(kind, item, checked) {
   if (checked && !exists) {
     list.push(item.id);
     if (kind === 'habits') {
-      addXp(state, xpForHabit(item), notifyEvent);
+      const earnedXp = xpForHabit(item, state.profile);
+      state.completions[date].xpByHabit ||= {};
+      state.completions[date].xpByHabit[item.id] = earnedXp;
+      addXp(state, earnedXp, notifyEvent);
       item.history ||= {};
       item.history[date] = true;
       if (item.frequency === 'weekly') {
@@ -124,11 +126,13 @@ function toggleCompletion(kind, item, checked) {
     }
     state.profile.lastActiveDate = date;
     state.heatmap[date] = { complete: true };
-    toast(kind === 'habits' ? `Misión completada · +${xpForHabit(item)} XP` : 'No negociable asegurado');
+    toast(kind === 'habits' ? `Misión completada · +${state.completions[date].xpByHabit[item.id]} XP` : 'No negociable asegurado');
   } else if (!checked && exists) {
     state.completions[date][kind] = list.filter(value => value !== item.id);
     if (kind === 'habits') {
-      state.profile.xp = Math.max(0, state.profile.xp - xpForHabit(item));
+      const awardedXp = state.completions[date].xpByHabit?.[item.id] ?? xpForHabit(item, state.profile);
+      state.profile.xp = Math.max(0, state.profile.xp - awardedXp);
+      if (state.completions[date].xpByHabit) delete state.completions[date].xpByHabit[item.id];
       if (item.history) delete item.history[date];
       if (item.frequency === 'weekly' && item.weeklyProgress) {
         const key = getWeekKey(parseDateKey(date));
@@ -220,9 +224,10 @@ function renderQuest(item, kind, mandatory = false) {
   else {
     if (item.frequency !== 'daily') {
       const progress = progressCount(item);
-      meta.append(element('span', 'period-count', `${progress.count}/${progress.target}`), element('span', 'muted tiny', progress.label));
+      const progressLabel = item.frequency === 'weekly' ? `${progress.count}/${progress.target}` : String(progress.count);
+      meta.append(element('span', 'period-count', progressLabel), element('span', 'muted tiny', progress.label));
     }
-    meta.append(element('span', 'muted small', `+${xpForHabit(item)} XP`));
+    meta.append(element('span', 'muted small', `+${xpForHabit(item, state.profile)} XP`));
   }
   row.append(checkbox, mark, content, meta);
   return row;
@@ -275,7 +280,7 @@ function renderHabits() {
   frequency.addEventListener('change', () => { currentFrequency = frequency.value; renderHabits(); });
   const categories = selectControl('Categoría', [['all', 'Todas las categorías'], ...state.categories.map(c => [c.id, c.name])], currentCategory);
   categories.addEventListener('change', () => { currentCategory = categories.value; renderHabits(); });
-  toolbar.append(frequency, categories, button('Nuevo hábito', 'button-primary', () => openHabitForm(), 'check'));
+  toolbar.append(frequency.fieldWrapper, categories.fieldWrapper, button('Nuevo hábito', 'button-primary', () => openHabitForm(), 'check'));
   root.append(toolbar);
   const habits = state.habits.filter(item => (currentFrequency === 'all' || item.frequency === currentFrequency) && (currentCategory === 'all' || item.categoryId === currentCategory));
   if (!habits.length) root.append(emptyPanel('Sin misiones por ahora', 'Crea un hábito para empezar a ganar experiencia.'));
@@ -293,10 +298,11 @@ function habitCard(habit) {
   const marker = element('span', 'category-dot'); marker.style.backgroundColor = cat?.color || '#7c3aed';
   const title = element('div');
   title.append(element('h2', 'item-title', habit.name));
-  title.append(element('p', 'muted small', `${cat?.name || 'Sin categoría'} · ${frequencyLabel(habit)} · ${habit.difficulty} · +${xpForHabit(habit)} XP`));
+  title.append(element('p', 'muted small', `${cat?.name || 'Sin categoría'} · ${frequencyLabel(habit)} · ${difficultyLabel(habit)} · +${xpForHabit(habit, state.profile)} XP`));
   if (habit.description) title.append(element('p', 'muted item-description', habit.description));
   const progress = progressCount(habit);
-  title.append(element('p', 'period-progress', `${progress.count}/${progress.target} ${progress.label}`));
+  const progressLabel = habit.frequency === 'monthly' ? `${progress.count} ${progress.label}` : `${progress.count}/${progress.target} ${progress.label}`;
+  title.append(element('p', 'period-progress', progressLabel));
   main.append(marker, title);
   const actions = element('div', 'item-actions');
   const active = element('span', `status-chip ${habit.active === false ? 'paused' : ''}`, habit.active === false ? 'PAUSADO' : 'ACTIVO');
@@ -454,7 +460,9 @@ function selectControl(labelText, options, selected) {
   options.forEach(([value, label]) => {
     const option = element('option', '', label); option.value = value; option.selected = value === selected; select.append(option);
   });
-  wrapper.append(select); return select;
+  wrapper.append(select);
+  select.fieldWrapper = wrapper;
+  return select;
 }
 
 function inputControl(labelText, type = 'text', value = '', required = false) {
@@ -481,27 +489,30 @@ function openHabitForm(existing) {
   const category = selectControl('Categoría', state.categories.map(c => [c.id, c.name]), existing?.categoryId || state.categories[0]?.id || '');
   const frequency = selectControl('Frecuencia', [['daily', 'Diario'], ['weekly', 'Semanal'], ['monthly', 'Mensual']], existing?.frequency || 'daily');
   const difficulty = selectControl('Dificultad', [['easy', 'Fácil'], ['medium', 'Media'], ['hard', 'Difícil']], existing?.difficulty || 'medium');
-  const xp = inputControl('XP (por defecto según dificultad)', 'number', existing?.xp || XP_BY_DIFF[existing?.difficulty || 'medium']);
-  xp.input.min = '1'; xp.input.max = '10000';
-  const target = inputControl('Objetivo del periodo', 'number', existing?.weeklyTarget || existing?.monthlyTarget || 3);
+  const target = inputControl('Objetivo semanal (veces)', 'number', existing?.weeklyTarget || 3);
   target.input.min = '1'; target.input.max = '99';
-  const reminder = inputControl('Recordatorio opcional', 'time', existing?.reminderTime || '');
   const active = checkboxControl('Misión activa', existing?.active !== false);
-  form.append(name.wrapper, description.wrapper, category, frequency, difficulty, xp.wrapper, target.wrapper, reminder.wrapper, active.wrapper);
-  frequency.addEventListener('change', () => { target.wrapper.hidden = frequency.value === 'daily'; target.wrapper.querySelector('.field-label').textContent = frequency.value === 'weekly' ? 'Objetivo semanal (veces)' : 'Objetivo mensual (veces)'; });
-  frequency.dispatchEvent(new Event('change'));
+  const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad: fácil 10%, media 15% y difícil 25% de la experiencia necesaria para tu siguiente nivel. La recompensa escala con tu nivel y no se puede editar.');
+  form.append(name.wrapper, description.wrapper, category.fieldWrapper, frequency.fieldWrapper, difficulty.fieldWrapper, xpExplanation, target.wrapper, active.wrapper);
+  const updateTargetField = () => {
+    target.wrapper.hidden = frequency.value !== 'weekly';
+    target.wrapper.querySelector('.target-hint')?.remove();
+    if (frequency.value === 'weekly') target.wrapper.append(element('span', 'muted small target-hint', 'Ejemplo: entrenar 3 veces antes de que termine la semana.'));
+  };
+  frequency.addEventListener('change', updateTargetField);
+  updateTargetField();
   showModal(existing ? 'Editar hábito' : 'Crear hábito', form, 'Guardar misión', () => {
     const selectedFrequency = frequency.value;
     const habit = {
       ...(existing || {}), id: existing?.id || id('habit'), name: name.input.value.trim(), description: description.input.value.trim(),
       categoryId: category.value, frequency: selectedFrequency, difficulty: difficulty.value,
-      xp: Number(xp.input.value) || XP_BY_DIFF[difficulty.value], reminderTime: reminder.input.value,
       active: active.input.checked, history: existing?.history || [], weeklyProgress: existing?.weeklyProgress || {}, monthlyProgress: existing?.monthlyProgress || {}
     };
+    delete habit.xp;
+    delete habit.reminderTime;
     if (selectedFrequency === 'weekly') habit.weeklyTarget = Number(target.input.value) || 1;
     else delete habit.weeklyTarget;
-    if (selectedFrequency === 'monthly') habit.monthlyTarget = Number(target.input.value) || 1;
-    else delete habit.monthlyTarget;
+    delete habit.monthlyTarget;
     if (!habit.name || !habit.categoryId) { toast('Completa el nombre y crea o selecciona una categoría.'); return false; }
     if (existing) Object.assign(existing, habit); else state.habits.push(habit);
     persist(); renderCurrent(); return true;
@@ -526,7 +537,7 @@ function openCategoryForm(existing) {
   const name = inputControl('Nombre', 'text', existing?.name || '', true);
   const color = inputControl('Color', 'color', existing?.color || '#8b5cf6');
   const categoryIcon = selectControl('Icono geométrico', [['brain', 'Mente'], ['pulse', 'Físico'], ['coin', 'Economía'], ['star', 'Espiritual'], ['people', 'Social'], ['heart', 'Salud'], ['tag', 'General']], existing?.icon || 'tag');
-  form.append(name.wrapper, color.wrapper, categoryIcon);
+  form.append(name.wrapper, color.wrapper, categoryIcon.fieldWrapper);
   showModal(existing ? 'Editar categoría' : 'Crear categoría', form, 'Guardar categoría', () => {
     if (!name.input.value.trim()) { toast('Escribe un nombre para la categoría.'); return false; }
     const item = { ...(existing || {}), id: existing?.id || id('category'), name: name.input.value.trim(), color: color.input.value, icon: categoryIcon.value };
@@ -554,7 +565,7 @@ function deleteCategory(category) {
     state.categories = state.categories.filter(item => item.id !== category.id); persist(); closeModal(); renderHabits();
   });
   const cancel = button('Cancelar', 'button-secondary', closeModal);
-  form.append(target, reassign, remove, cancel);
+  form.append(target.fieldWrapper, reassign, remove, cancel);
   showModal('Eliminar categoría', form, null);
 }
 
@@ -718,6 +729,7 @@ function emptyPanel(title, description) {
 }
 
 function frequencyLabel(habit) { return { daily: 'diario', weekly: 'semanal', monthly: 'mensual' }[habit.frequency] || 'diario'; }
+function difficultyLabel(habit) { return { easy: 'fácil', medium: 'media', hard: 'difícil' }[habit.difficulty] || 'media'; }
 
 function toast(message) {
   const root = document.getElementById('toast-root'); root.replaceChildren(element('div', 'toast-message', message));

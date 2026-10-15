@@ -6,6 +6,9 @@ SISTEMA es una aplicación progresiva de hábitos para móvil. Convierte tus com
 
 - Misiones diarias, semanales y mensuales, no negociables, categorías editables y penalizaciones.
 - Inicio permite marcar todas las misiones de hoy; en Hábitos se gestionan las misiones y, en un apartado propio, sus categorías.
+- El XP no es editable: dificultad fácil/media/difícil otorga 10%/15%/25% del XP requerido para el siguiente nivel, escalando automáticamente con el nivel.
+- Los objetivos semanales indican cuántas veces completar una misión antes de que termine la semana. Los hábitos mensuales se consideran cumplidos al completarlos al menos una vez dentro del mes.
+- Las notificaciones disponibles son recordatorios generales configurados en Ajustes; no hay recordatorios individuales por hábito.
 - XP, niveles del 1 al 100, rachas, historial y animaciones de ascenso.
 - Seis sombras que se desbloquean secuencialmente al renacer en el nivel 100.
 - PWA instalable, funcionamiento offline tras la primera carga y diseño adaptable con soporte de safe-area.

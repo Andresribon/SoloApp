@@ -77,7 +77,7 @@ export function closeMonthly(state, endedMonth, onEvent = () => {}) {
   const end = new Date(year, month, 0, 12);
   for (const habit of state.habits.filter(item => item.active !== false && item.frequency === 'monthly')) {
     const done = periodCount(state, habit, start, end);
-    if (done < Number(habit.monthlyTarget || 1) && habit.lastClosedMonth !== endedMonth) {
+    if (done < 1 && habit.lastClosedMonth !== endedMonth) {
       addXp(state, -XP_LOSS_MONTHLY_MISS, onEvent);
     }
     habit.lastClosedMonth = endedMonth;
@@ -139,8 +139,13 @@ export function awaken(state) {
   return shadow || null;
 }
 
-export function xpForHabit(habit) {
-  return Number(habit.xp) || XP_BY_DIFF[habit.difficulty] || XP_BY_DIFF.medium;
+export function xpForHabit(habit, profile = null) {
+  const level = typeof profile === 'number' ? profile : profile?.level || 1;
+  const xpToNext = typeof profile === 'object' && profile?.xpToNext
+    ? profile.xpToNext
+    : Math.floor(BASE_XP_NEXT * Math.pow(GROWTH, Math.max(0, level - 1)));
+  const difficultyShare = XP_BY_DIFF[habit.difficulty] || XP_BY_DIFF.medium;
+  return Math.max(1, Math.round(xpToNext * difficultyShare / 100));
 }
 
 export function canLevelUpByDayCompletion() {

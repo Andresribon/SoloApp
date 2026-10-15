@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0612">
+  <meta name="application-name" content="SISTEMA">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SISTEMA">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="SISTEMA: convierte tus hábitos en misiones y asciende de nivel.">
+  <title>SISTEMA — Ventana de Estado</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon-192.svg" type="image/svg+xml">
+  <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" sizes="192x192">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="SISTEMA, inicio"><span class="brand-mark" aria-hidden="true">S</span><span>SISTEMA</span></a>
+      <span class="live-indicator"><i></i> ONLINE</span>
+    </header>
+    <main id="main-content">
+      <section id="view-home" class="view active" aria-labelledby="home-title"></section>
+      <section id="view-habits" class="view" aria-labelledby="habits-title" hidden></section>
+      <section id="view-stats" class="view" aria-labelledby="stats-title" hidden></section>
+      <section id="view-shadows" class="view" aria-labelledby="shadows-title" hidden></section>
+      <section id="view-settings" class="view" aria-labelledby="settings-title" hidden></section>
+    </main>
+    <nav class="bottom-nav" aria-label="Navegación principal">
+      <button class="nav-item active" data-view="home"><span class="icon icon-home" aria-hidden="true"></span><span>Inicio</span></button>
+      <button class="nav-item" data-view="habits"><span class="icon icon-check" aria-hidden="true"></span><span>Hábitos</span></button>
+      <button class="nav-item" data-view="stats"><span class="icon icon-stats" aria-hidden="true"></span><span>Estadísticas</span></button>
+      <button class="nav-item" data-view="shadows"><span class="icon icon-shadows" aria-hidden="true"></span><span>Sombras</span></button>
+      <button class="nav-item" data-view="settings"><span class="icon icon-gear" aria-hidden="true"></span><span>Ajustes</span></button>
+    </nav>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <div id="announcement" class="sr-only" aria-live="assertive"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

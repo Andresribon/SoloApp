@@ -2,7 +2,6 @@ import { load, save } from './js/storage.js';
 import { processPendingDays } from './js/gamification.js';
 import { initUI, showLevelEvent, showEpicOverlay, updateState } from './js/ui.js';
 import { todayLocalISO } from './js/utils.js';
-import { scheduleGeneralReminder } from './js/notifications.js';
 
 let state = load();
 
@@ -23,11 +22,9 @@ function start() {
   document.body.classList.toggle('reduce-motion', state.settings.reduceMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   if (!state.settings.onboardingDone) showOnboarding();
-  if (state.settings.notifications.enabled && 'Notification' in window && Notification.permission === 'granted') {
-    scheduleGeneralReminder(state).catch(error => console.error('[SISTEMA] No se pudo programar el recordatorio.', error));
-  }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(error => console.error('[SISTEMA] No se pudo registrar el Service Worker.', error));
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .catch(error => console.error('[SISTEMA] No se pudo registrar el Service Worker.', error));
   }
 }
 

@@ -1,6 +1,7 @@
 import { element, id, todayLocalISO, dateLabel, parseDateKey, getWeekKey, getMonthKey, clamp } from './utils.js';
 import { icon } from './icons.js';
-import { getRankByLevel, addXp, xpForHabit, completePenaltyTasks, awaken } from './gamification.js';
+import { FLEX_DAYS_PER_WEEK, DAILY_FLEX_THRESHOLD, NON_NEGOTIABLE_XP_RATE, DAILY_COMPLETION_BONUS_RATE } from './state.js';
+import { getRankByLevel, addXp, xpForHabit, xpForNonNegotiable, xpForDailyCompletionBonus, completePenaltyTasks, awaken } from './gamification.js';
 import { migrate } from './storage.js';
 
 let state;
@@ -13,6 +14,7 @@ let currentHabitSection = 'missions';
 let toastTimer;
 let epicQueue = [];
 let epicShowing = false;
+let penaltyKeyboardTrapInstalled = false;
 
 export function initUI(appState, saveState, eventHandler) {
   state = appState;
@@ -25,6 +27,10 @@ export function initUI(appState, saveState, eventHandler) {
   });
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view)));
   document.querySelector('.brand')?.addEventListener('click', event => { event.preventDefault(); navigate('home'); });
+  if (!penaltyKeyboardTrapInstalled) {
+    document.addEventListener('keydown', keepPenaltyModalLocked);
+    penaltyKeyboardTrapInstalled = true;
+  }
   renderAll();
 }
 
@@ -34,6 +40,7 @@ export function updateState(nextState) {
 }
 
 export function navigate(name) {
+  if (state.penalties.active) return;
   currentView = name;
   document.querySelectorAll('.view').forEach(view => {
     const active = view.id === `view-${name}`;
@@ -50,6 +57,24 @@ function renderAll() {
 }
 
 function renderCurrent() {
+  if (state.penalties.active) {
+    currentView = 'home';
+    document.querySelectorAll('.view').forEach(view => {
+      const active = view.id === 'view-home';
+      view.hidden = !active;
+      view.classList.toggle('active', active);
+    });
+    document.querySelectorAll('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.view === 'home'));
+    renderHome();
+    renderPenaltyModal();
+    return;
+  }
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot.querySelector('.penalty-overlay')) {
+    modalRoot.replaceChildren();
+    document.querySelector('.app-shell').inert = false;
+    document.body.classList.remove('penalty-open');
+  }
   const renderers = { home: renderHome, habits: renderHabits, stats: renderStats, shadows: renderShadows, settings: renderSettings };
   renderers[currentView]();
 }
@@ -99,53 +124,75 @@ function isDone(kind, itemId, date = todayLocalISO()) {
 
 function toggleCompletion(kind, item, checked) {
   const date = todayLocalISO();
+  const alreadyCompleted = (state.completions[date]?.[kind] || []).includes(item.id);
+  if (!checked || alreadyCompleted) return;
   state.completions[date] ||= { habits: [], nonNegotiables: [] };
-  const list = state.completions[date][kind];
-  const exists = list.includes(item.id);
-  if (checked && !exists) {
-    list.push(item.id);
-    if (kind === 'habits') {
-      const earnedXp = xpForHabit(item, state.profile);
-      state.completions[date].xpByHabit ||= {};
-      state.completions[date].xpByHabit[item.id] = earnedXp;
+  const day = state.completions[date];
+  day[kind].push(item.id);
+  let earnedXp = 0;
+  day.xpAwards ||= { habits: {}, nonNegotiables: {}, dailyBonus: null };
+  day.xpAwards.habits ||= {};
+  day.xpAwards.nonNegotiables ||= {};
+  if (kind === 'habits') {
+    const award = day.xpAwards.habits[item.id];
+    if (!award) {
+      earnedXp = xpForHabit(item, state.profile);
+      day.xpAwards.habits[item.id] = { amount: earnedXp, active: true };
+      day.xpByHabit ||= {};
+      day.xpByHabit[item.id] = earnedXp;
       addXp(state, earnedXp, notifyEvent);
-      item.history ||= {};
-      item.history[date] = true;
-      if (item.frequency === 'weekly') {
-        item.weeklyProgress ||= {};
-        const key = getWeekKey(parseDateKey(date));
-        item.weeklyProgress[key] = (item.weeklyProgress[key] || 0) + 1;
-      } else if (item.frequency === 'monthly') {
-        item.monthlyProgress ||= {};
-        const key = getMonthKey(parseDateKey(date));
-        item.monthlyProgress[key] = (item.monthlyProgress[key] || 0) + 1;
-      }
-    } else {
-      item.history ||= {};
-      item.history[date] = true;
+    } else if (award.active) earnedXp = award.amount;
+    item.history ||= {};
+    item.history[date] = true;
+    if (item.frequency === 'weekly') {
+      item.weeklyProgress ||= {};
+      const key = getWeekKey(parseDateKey(date));
+      item.weeklyProgress[key] = (item.weeklyProgress[key] || 0) + 1;
+    } else if (item.frequency === 'monthly') {
+      item.monthlyProgress ||= {};
+      const key = getMonthKey(parseDateKey(date));
+      item.monthlyProgress[key] = (item.monthlyProgress[key] || 0) + 1;
     }
-    state.profile.lastActiveDate = date;
-    state.heatmap[date] = { complete: true };
-    toast(kind === 'habits' ? `Misión completada · +${state.completions[date].xpByHabit[item.id]} XP` : 'No negociable asegurado');
-  } else if (!checked && exists) {
-    state.completions[date][kind] = list.filter(value => value !== item.id);
-    if (kind === 'habits') {
-      const awardedXp = state.completions[date].xpByHabit?.[item.id] ?? xpForHabit(item, state.profile);
-      state.profile.xp = Math.max(0, state.profile.xp - awardedXp);
-      if (state.completions[date].xpByHabit) delete state.completions[date].xpByHabit[item.id];
-      if (item.history) delete item.history[date];
-      if (item.frequency === 'weekly' && item.weeklyProgress) {
-        const key = getWeekKey(parseDateKey(date));
-        item.weeklyProgress[key] = Math.max(0, (item.weeklyProgress[key] || 0) - 1);
-      } else if (item.frequency === 'monthly' && item.monthlyProgress) {
-        const key = getMonthKey(parseDateKey(date));
-        item.monthlyProgress[key] = Math.max(0, (item.monthlyProgress[key] || 0) - 1);
-      }
-    } else if (item.history) delete item.history[date];
-    toast('Progreso revertido. El nivel no disminuye.');
+  } else {
+    const award = day.xpAwards.nonNegotiables[item.id];
+    if (!award) {
+      earnedXp = xpForNonNegotiable(state);
+      day.xpAwards.nonNegotiables[item.id] = { amount: earnedXp, active: true };
+      day.xpByNonNegotiable ||= {};
+      day.xpByNonNegotiable[item.id] = earnedXp;
+      addXp(state, earnedXp, notifyEvent);
+    } else if (award.active) earnedXp = award.amount;
+    item.history ||= {};
+    item.history[date] = true;
+  }
+  state.profile.lastActiveDate = date;
+  state.heatmap[date] = { complete: true };
+  const bonusXp = updateDailyCompletionBonus(day);
+  if (kind === 'habits') {
+    toast(`Misión completada · +${earnedXp} XP${bonusXp ? ` · bonus +${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}%` : ''}`);
+  } else {
+    toast(`No negociable completado · +${Math.round(NON_NEGOTIABLE_XP_RATE * 100)}% del XP requerido para este nivel${bonusXp ? ` · bonus +${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}%` : ''}`);
   }
   persist();
   renderAll();
+}
+
+function updateDailyCompletionBonus(day) {
+  day.xpAwards ||= { habits: {}, nonNegotiables: {}, dailyBonus: null };
+  const dailyHabits = state.habits.filter(habit => habit.active !== false && habit.frequency === 'daily');
+  const nonNegotiables = state.nonNegotiables.filter(item => item.active !== false);
+  const requiredCount = dailyHabits.length + nonNegotiables.length;
+  const allComplete = requiredCount > 0
+    && dailyHabits.every(habit => day.habits.includes(habit.id))
+    && nonNegotiables.every(item => day.nonNegotiables.includes(item.id));
+  const award = day.xpAwards.dailyBonus;
+  if (allComplete && !award) {
+    const amount = xpForDailyCompletionBonus(state);
+    day.xpAwards.dailyBonus = { amount, active: true, claimed: true };
+    addXp(state, amount, notifyEvent);
+    return amount;
+  }
+  return 0;
 }
 
 function renderHome() {
@@ -177,24 +224,39 @@ function renderHome() {
     awakenButton.setAttribute('aria-label', 'Despertar y reiniciar el nivel');
     root.append(awakenButton);
   }
-  if (state.penalties.active) root.append(renderPenaltyBanner());
+  if (state.dailyWarnings?.length) root.append(renderDailyWarnings());
   const missionPanel = panel('Misiones de hoy', todayLocalISO());
   const dailyItems = state.habits.filter(habit => habit.active !== false && habit.frequency === 'daily');
   const weeklyItems = state.habits.filter(habit => habit.active !== false && habit.frequency === 'weekly');
   const monthlyItems = state.habits.filter(habit => habit.active !== false && habit.frequency === 'monthly');
   const nonNeg = state.nonNegotiables.filter(item => item.active !== false);
+  const date = todayLocalISO();
+  const weekKey = getWeekKey(parseDateKey(date));
+  const usedFlexDays = state.weeklyFlexibility?.[weekKey]?.usedDays?.length || 0;
+  const doneDailyCount = dailyItems.filter(item => isDone('habits', item.id, date)).length;
+  const minimumDailyCount = Math.ceil(dailyItems.length * DAILY_FLEX_THRESHOLD);
+  const flexStatus = element('div', 'flexibility-status');
+  flexStatus.append(
+    element('strong', '', `Flexibilidad semanal · ${usedFlexDays}/${FLEX_DAYS_PER_WEEK} días usados`),
+    element('span', 'muted small', dailyItems.length
+      ? `${doneDailyCount}/${dailyItems.length} hábitos diarios hoy. En un día flexible basta con ${minimumDailyCount}/${dailyItems.length}; todos los no negociables siguen siendo obligatorios.`
+      : 'Los días flexibles aplican cuando hay hábitos diarios; todos los no negociables siguen siendo obligatorios.')
+  );
+  missionPanel.append(flexStatus);
   missionPanel.append(element('p', 'eyebrow mission-group-label', 'NO NEGOCIABLES'));
   if (nonNeg.length) nonNeg.forEach(item => missionPanel.append(renderQuest(item, 'nonNegotiables', true)));
   else missionPanel.append(emptyText('Aún no has definido misiones no negociables.'));
   missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS DIARIOS'));
   if (dailyItems.length) dailyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
   else missionPanel.append(emptyText('No hay hábitos diarios activos.'));
-  missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS SEMANALES'));
+  missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS SEMANALES · CIERRE DOMINGO'));
   if (weeklyItems.length) weeklyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
   else missionPanel.append(emptyText('No hay hábitos semanales activos.'));
-  missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS MENSUALES'));
+  const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 12);
+  missionPanel.append(element('p', 'eyebrow mission-group-label', `HÁBITOS MENSUALES · CIERRE ${dateLabel(todayLocalISO(monthEnd)).toLocaleUpperCase('es-ES')}`));
   if (monthlyItems.length) monthlyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
   else missionPanel.append(emptyText('No hay hábitos mensuales activos.'));
+  missionPanel.append(element('p', 'muted small daily-bonus-hint', `Bonus diario: ${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}% del requisito de XP del nivel actual al completar todos los hábitos diarios y no negociables. Solo se obtiene una vez por día.`));
   root.append(missionPanel);
   const addRow = element('div', 'action-row');
   addRow.append(button('Añadir hábito', 'button-secondary', () => openHabitForm()), button('Añadir no negociable', 'button-secondary', () => openNonNegotiableForm()));
@@ -213,14 +275,18 @@ function renderQuest(item, kind, mandatory = false) {
   const checkbox = element('input', 'quest-check');
   checkbox.type = 'checkbox';
   checkbox.checked = checked;
-  checkbox.setAttribute('aria-label', `Completar ${item.name}`);
+  checkbox.disabled = checked;
+  checkbox.setAttribute('aria-label', checked ? `${item.name}, completado hoy` : `Completar ${item.name}`);
   checkbox.addEventListener('change', () => toggleCompletion(kind, item, checkbox.checked));
   const mark = element('span', 'custom-check');
   const content = element('span', 'quest-content');
   content.append(element('strong', '', item.name));
   if (item.description) content.append(element('span', 'muted small', item.description));
   const meta = element('span', 'quest-meta');
-  if (mandatory) meta.append(element('span', 'mandatory-badge', 'OBLIGATORIO'));
+  if (mandatory) {
+    meta.append(element('span', 'mandatory-badge', 'OBLIGATORIO'));
+    meta.append(element('span', 'muted small', `+${Math.round(NON_NEGOTIABLE_XP_RATE * 100)}% del XP requerido para este nivel`));
+  }
   else {
     if (item.frequency !== 'daily') {
       const progress = progressCount(item);
@@ -233,31 +299,115 @@ function renderQuest(item, kind, mandatory = false) {
   return row;
 }
 
-function renderPenaltyBanner() {
-  const box = element('section', 'penalty-card');
-  box.setAttribute('role', 'alert');
-  box.setAttribute('aria-live', 'assertive');
-  box.append(icon('warning', 'penalty-symbol'), element('h2', '', '[SISTEMA] No cumpliste tus misiones diarias. Misión de penalización activada.'));
+function renderPenaltyModal() {
+  const root = document.getElementById('modal-root');
+  root.replaceChildren();
+  const overlay = element('div', 'penalty-overlay');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'penalty-title');
+  overlay.setAttribute('aria-describedby', 'penalty-description');
+  overlay.setAttribute('aria-live', 'assertive');
+  overlay.tabIndex = -1;
+  const content = element('section', 'penalty-dialog');
+  content.append(icon('warning', 'penalty-symbol'));
+  const periodPenalty = state.penalties.missedList.some(name => /\((semanal|mensual)\)$/.test(name));
+  const title = element('h1', '', periodPenalty
+    ? '[SISTEMA] No completaste tus misiones del periodo. Misión de penalización activada.'
+    : '[SISTEMA] No cumpliste tus misiones diarias. Misión de penalización activada.');
+  title.id = 'penalty-title';
+  const description = element('p', 'penalty-description', 'Completa todas las misiones de castigo para continuar. Este protocolo no se puede cerrar.');
+  description.id = 'penalty-description';
+  content.append(title, description);
   if (state.penalties.missedList.length) {
-    const missed = element('p', 'small', `Pendiente: ${state.penalties.missedList.join(', ')}`);
-    box.append(missed);
+    content.append(element('p', 'penalty-missed', `Misiones incumplidas: ${state.penalties.missedList.join(', ')}`));
   }
-  const list = element('div', 'punishment-list');
-  for (const task of state.punishmentTasks) {
-    const row = element('label', 'punishment-row');
-    const check = element('input');
-    check.type = 'checkbox';
-    check.checked = state.penalties.completedTasks.includes(task.id);
-    check.addEventListener('change', () => {
-      completePenaltyTasks(state, task.id, check.checked);
-      persist(); renderHome();
-    });
-    row.append(check, element('span', '', task.text));
-    list.append(row);
+  if (state.punishmentTasks.length) {
+    const completedCount = state.punishmentTasks.filter(task => state.penalties.completedTasks.includes(task.id)).length;
+    content.append(element('p', 'penalty-progress', `${completedCount} de ${state.punishmentTasks.length} tareas completadas`));
+    const list = element('div', 'punishment-list penalty-modal-list');
+    for (const task of state.punishmentTasks) {
+      const row = element('label', 'punishment-row');
+      const check = element('input');
+      check.type = 'checkbox';
+      check.checked = state.penalties.completedTasks.includes(task.id);
+      check.disabled = check.checked;
+      check.setAttribute('aria-label', `Completar tarea de castigo: ${task.text}`);
+      check.addEventListener('change', () => {
+        completePenaltyTasks(state, task.id, check.checked);
+        persist();
+        renderCurrent();
+      });
+      row.append(check, element('span', '', task.text));
+      list.append(row);
+    }
+    content.append(list);
+  } else {
+    content.append(
+      element('p', 'penalty-missing-tasks', 'No hay tareas de castigo configuradas. Restablece las tareas para completar el protocolo y continuar.'),
+      button('RESTABLECER TAREAS DE CASTIGO', 'button-primary', () => {
+        state.punishmentTasks = ['30 flexiones', '10 min lectura', 'Ducha fría'].map(text => ({ id: id('punishment'), text }));
+        state.penalties.completedTasks = [];
+        persist();
+        renderCurrent();
+      })
+    );
   }
-  box.append(list);
-  if (!state.punishmentTasks.length) box.append(element('p', 'small', 'Añade tareas de castigo en Ajustes.'));
-  if (!state.penalties.active) box.classList.add('penalty-resolved');
+  overlay.append(content);
+  root.append(overlay);
+  document.querySelector('.app-shell').inert = true;
+  document.body.classList.add('penalty-open');
+  overlay.querySelector('input:not([disabled]), button:not([disabled])')?.focus();
+}
+
+function keepPenaltyModalLocked(event) {
+  if (!state?.penalties.active) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const overlay = document.querySelector('.penalty-overlay');
+  const focusable = [...overlay.querySelectorAll('input:not([disabled]), button:not([disabled])')];
+  if (!focusable.length) {
+    event.preventDefault();
+    overlay.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!overlay.contains(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function renderDailyWarnings() {
+  const box = element('section', 'daily-warning-list');
+  box.setAttribute('aria-live', 'polite');
+  box.setAttribute('aria-label', 'Avisos de misiones incompletas');
+  for (const warning of state.dailyWarnings) {
+    const card = element('article', `daily-warning ${warning.type === 'penalty' ? 'daily-warning-penalty' : ''}`);
+    const message = warning.type === 'penalty'
+      ? warning.reason === 'period'
+        ? `ADVERTENCIA: Quedó sin completar al menos una misión semanal o mensual antes del cierre del periodo (${warning.date}). Se activó el castigo y una penalización de XP.`
+        : `ADVERTENCIA: El día ${warning.date} quedó incompleto. No alcanzaste el mínimo diario, faltó un no negociable o agotaste tus días flexibles; debes cumplir las tareas de castigo.`
+      : `ADVERTENCIA: El día ${warning.date} quedó incompleto. Se usó un día de flexibilidad; te quedan ${warning.remainingFlexDays} de ${FLEX_DAYS_PER_WEEK} esta semana.`;
+    card.append(element('p', '', message));
+    card.append(button('Entendido', 'button-small', () => {
+      state.dailyWarnings = state.dailyWarnings.filter(item => item.id !== warning.id);
+      persist();
+      renderHome();
+    }));
+    box.append(card);
+  }
   return box;
 }
 
@@ -418,21 +568,6 @@ function shadowCard(shadow, locked) {
 function renderSettings() {
   const root = document.getElementById('view-settings'); root.replaceChildren();
   root.append(heading('Ajustes', 'CONFIGURACIÓN DEL SISTEMA'));
-  const notifications = panel('Recordatorios', 'Actívalos cuando quieras; no pediremos permiso al abrir la app.');
-  const explain = element('p', 'muted small', 'Recibe un aviso diario para volver a tus misiones. El funcionamiento depende del navegador y del estado de la aplicación.');
-  const time = inputControl('Hora del recordatorio diario', 'time', state.settings.notifications.dailyTime || '20:00');
-  time.input.addEventListener('change', async () => {
-    state.settings.notifications.dailyTime = time.input.value; persist();
-    if (state.settings.notifications.enabled) {
-      try { const { scheduleGeneralReminder } = await import('./notifications.js'); await scheduleGeneralReminder(state); }
-      catch (error) { console.error('[SISTEMA] No se pudo actualizar el recordatorio.', error); toast('No se pudo actualizar el recordatorio.'); }
-    }
-  });
-  const reminderButton = button(state.settings.notifications.enabled ? 'Recordatorios activados' : 'Activar recordatorios', 'button-primary', activateNotifications);
-  const testButton = button('ENVIAR NOTIFICACIÓN DE PRUEBA', 'button-secondary', sendTestNotification);
-  notifications.append(explain, time.wrapper, reminderButton, testButton, element('p', 'muted small', `Estado: ${state.settings.notifications.permission || 'default'} · Sin servidor push; con la app cerrada no se garantiza la entrega.`));
-  const periodic = element('p', 'muted small', ('serviceWorker' in navigator && 'periodicSync' in ServiceWorkerRegistration.prototype) ? 'Periodic Background Sync disponible en este navegador.' : 'Periodic Background Sync no está disponible; se usará un recordatorio de sesión cuando sea posible.');
-  notifications.append(periodic); root.append(notifications);
   const motion = panel('Accesibilidad');
   const reduce = checkboxControl('Reducir movimiento', state.settings.reduceMotion);
   reduce.input.addEventListener('change', () => { state.settings.reduceMotion = reduce.input.checked; persist(); document.body.classList.toggle('reduce-motion', state.settings.reduceMotion); });
@@ -493,11 +628,17 @@ function openHabitForm(existing) {
   target.input.min = '1'; target.input.max = '99';
   const active = checkboxControl('Misión activa', existing?.active !== false);
   const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad: fácil 10%, media 15% y difícil 25% de la experiencia necesaria para tu siguiente nivel. La recompensa escala con tu nivel y no se puede editar.');
-  form.append(name.wrapper, description.wrapper, category.fieldWrapper, frequency.fieldWrapper, difficulty.fieldWrapper, xpExplanation, target.wrapper, active.wrapper);
+  const deadlineHint = element('p', 'muted small field-help');
+  form.append(name.wrapper, description.wrapper, category.fieldWrapper, frequency.fieldWrapper, difficulty.fieldWrapper, xpExplanation, deadlineHint, target.wrapper, active.wrapper);
   const updateTargetField = () => {
     target.wrapper.hidden = frequency.value !== 'weekly';
     target.wrapper.querySelector('.target-hint')?.remove();
     if (frequency.value === 'weekly') target.wrapper.append(element('span', 'muted small target-hint', 'Ejemplo: entrenar 3 veces antes de que termine la semana.'));
+    if (frequency.value === 'weekly') deadlineHint.textContent = 'Cumple el objetivo antes de que cierre la semana el domingo.';
+    else if (frequency.value === 'monthly') {
+      const lastDay = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 12);
+      deadlineHint.textContent = `Completa esta misión al menos una vez antes del ${dateLabel(todayLocalISO(lastDay))}.`;
+    } else deadlineHint.textContent = 'Completa esta misión cada día.';
   };
   frequency.addEventListener('change', updateTargetField);
   updateTargetField();
@@ -659,21 +800,6 @@ export function showLevelEvent(event) {
     if (!state.settings.reduceMotion && navigator.vibrate) navigator.vibrate(150);
   } else if (event.type === 'rank') epicQueue.push({ message: event.rank, type: 'rank' });
   showNextEpicEvent();
-}
-
-async function activateNotifications() {
-  try {
-    const { requestPermission } = await import('./notifications.js');
-    const permission = await requestPermission(state);
-    persist(); toast(permission === 'granted' ? 'Recordatorios activados.' : 'El permiso de notificaciones no fue concedido.'); renderSettings();
-  } catch (error) { toast(error.message); }
-}
-
-async function sendTestNotification() {
-  try {
-    const { showTestNotification } = await import('./notifications.js');
-    await showTestNotification(); toast('Notificación de prueba enviada.');
-  } catch (error) { toast(error.message); }
 }
 
 function exportData() {

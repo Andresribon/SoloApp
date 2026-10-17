@@ -1,4 +1,4 @@
-import { XP_BY_DIFF, XP_LOSS_MISS, XP_LOSS_EXTRA, XP_LOSS_WEEKLY_MISS, XP_LOSS_MONTHLY_MISS, BASE_XP_NEXT, GROWTH } from './state.js';
+import { XP_BY_DIFF, XP_LOSS_MISS, XP_LOSS_EXTRA, PERIOD_MISS_XP_RATE, BASE_XP_NEXT, GROWTH, FLEX_DAYS_PER_WEEK, DAILY_FLEX_THRESHOLD, NON_NEGOTIABLE_XP_RATE, DAILY_COMPLETION_BONUS_RATE } from './state.js';
 import { todayLocalISO, parseDateKey, getWeekKey, getMonthKey } from './utils.js';
 
 export const RANKS = [
@@ -19,6 +19,18 @@ function ensureDay(state, date) {
 
 function hasCompletion(state, kind, itemId, date) {
   return (state.completions[date]?.[kind] || []).includes(itemId);
+}
+
+function getAwardedXp(state, rate) {
+  return Math.max(1, Math.round(state.profile.xpToNext * rate));
+}
+
+export function xpForNonNegotiable(state) {
+  return getAwardedXp(state, NON_NEGOTIABLE_XP_RATE);
+}
+
+export function xpForDailyCompletionBonus(state) {
+  return getAwardedXp(state, DAILY_COMPLETION_BONUS_RATE);
 }
 
 export function addXp(state, amount, onEvent = () => {}) {
@@ -42,12 +54,42 @@ export function addXp(state, amount, onEvent = () => {}) {
   return profile;
 }
 
+export function removeXp(state, amount, onEvent = () => {}, date = todayLocalISO()) {
+  const profile = state.profile;
+  const oldRank = getRankByLevel(profile.level).name;
+  let remaining = Math.max(0, Math.trunc(amount));
+  let levelsLost = 0;
+  while (remaining > 0) {
+    if (remaining <= profile.xp) {
+      profile.xp -= remaining;
+      remaining = 0;
+      break;
+    }
+    remaining -= profile.xp;
+    profile.xp = 0;
+    if (profile.level <= 1) break;
+    profile.level -= 1;
+    levelsLost += 1;
+    profile.xpToNext = Math.floor(BASE_XP_NEXT * Math.pow(GROWTH, profile.level - 1));
+    profile.xp = profile.xpToNext;
+  }
+  profile.rank = getRankByLevel(profile.level).name;
+  if (levelsLost) {
+    state.levelHistory.push({ level: profile.level, date, iso: new Date().toISOString(), rank: profile.rank, penalty: true, levelsLost });
+    onEvent({ type: 'levelDown', level: profile.level, levelsLost });
+  }
+  if (profile.rank !== oldRank) onEvent({ type: 'rank', rank: profile.rank });
+  return profile;
+}
+
 export function applyPenalty(state, date, missedList, onEvent = () => {}) {
   if (!state.penalties.active) {
-    state.penalties = { active: true, triggeredAt: date, missedList, extraApplied: false, completedTasks: [] };
+    state.penalties = { active: true, triggeredAt: date, missedList: [...new Set(missedList)], extraApplied: false, completedTasks: [] };
     addXp(state, -XP_LOSS_MISS, onEvent);
     state.profile.streak = 0;
-    onEvent({ type: 'penalty', missedList });
+    onEvent({ type: 'penalty', missedList: state.penalties.missedList });
+  } else {
+    state.penalties.missedList = [...new Set([...state.penalties.missedList, ...missedList])];
   }
 }
 
@@ -62,26 +104,39 @@ function periodCount(state, habit, start, end) {
 export function closeWeekly(state, endedWeek, onEvent = () => {}) {
   const start = parseDateKey(endedWeek);
   const end = new Date(start); end.setDate(end.getDate() + 6);
+  const missedHabits = [];
   for (const habit of state.habits.filter(item => item.active !== false && item.frequency === 'weekly')) {
     const done = periodCount(state, habit, start, end);
     if (done < Number(habit.weeklyTarget || 1) && habit.lastClosedWeek !== endedWeek) {
-      addXp(state, -XP_LOSS_WEEKLY_MISS, onEvent);
+      missedHabits.push(habit);
     }
     habit.lastClosedWeek = endedWeek;
   }
+  applyPeriodMissPenalty(state, missedHabits, todayLocalISO(end), onEvent);
 }
 
 export function closeMonthly(state, endedMonth, onEvent = () => {}) {
   const [year, month] = endedMonth.split('-').map(Number);
   const start = new Date(year, month - 1, 1, 12);
   const end = new Date(year, month, 0, 12);
+  const missedHabits = [];
   for (const habit of state.habits.filter(item => item.active !== false && item.frequency === 'monthly')) {
     const done = periodCount(state, habit, start, end);
     if (done < 1 && habit.lastClosedMonth !== endedMonth) {
-      addXp(state, -XP_LOSS_MONTHLY_MISS, onEvent);
+      missedHabits.push(habit);
     }
     habit.lastClosedMonth = endedMonth;
   }
+  applyPeriodMissPenalty(state, missedHabits, todayLocalISO(end), onEvent);
+}
+
+function applyPeriodMissPenalty(state, missedHabits, date, onEvent) {
+  if (!missedHabits.length) return;
+  const lossPerHabit = Math.max(1, Math.round(state.profile.xpToNext * PERIOD_MISS_XP_RATE));
+  removeXp(state, lossPerHabit * missedHabits.length, onEvent, date);
+  const missedNames = missedHabits.map(habit => `${habit.name} (${habit.frequency === 'weekly' ? 'semanal' : 'mensual'})`);
+  applyPenalty(state, date, missedNames, onEvent);
+  addDailyWarning(state, date, 'penalty', 0, 'period');
 }
 
 export function processPendingDays(state, today = todayLocalISO(), onEvent = () => {}) {
@@ -101,12 +156,37 @@ export function processPendingDays(state, today = todayLocalISO(), onEvent = () 
       ...state.nonNegotiables.filter(item => item.active !== false).map(item => ({ item, kind: 'nonNegotiables' })),
       ...state.habits.filter(item => item.active !== false && item.frequency === 'daily').map(item => ({ item, kind: 'habits' }))
     ];
-    const missed = required.filter(({ item, kind }) => !hasCompletion(state, kind, item.id, date)).map(({ item }) => item.name);
-    if (missed.length) applyPenalty(state, date, missed, onEvent);
+    const activeNonNegotiables = state.nonNegotiables.filter(item => item.active !== false);
+    const dailyHabits = state.habits.filter(item => item.active !== false && item.frequency === 'daily');
+    const missedNonNegotiables = activeNonNegotiables.filter(item => !hasCompletion(state, 'nonNegotiables', item.id, date));
+    const missedDaily = dailyHabits.filter(item => !hasCompletion(state, 'habits', item.id, date));
+    const flexKey = getWeekKey(cursor);
+    state.weeklyFlexibility ||= {};
+    state.weeklyFlexibility[flexKey] ||= { usedDays: [] };
+    const usedDays = state.weeklyFlexibility[flexKey].usedDays;
+    let missed = [...missedNonNegotiables.map(item => item.name)];
+    if (missedDaily.length) {
+      const minimumCompletions = Math.ceil(dailyHabits.length * DAILY_FLEX_THRESHOLD);
+      const mayUseFlexDay = missedNonNegotiables.length === 0
+        && dailyHabits.length > 0
+        && dailyHabits.length - missedDaily.length >= minimumCompletions
+        && usedDays.length < FLEX_DAYS_PER_WEEK;
+      if (mayUseFlexDay) {
+        usedDays.push(date);
+        state.heatmap[date] = { complete: true, flexible: true };
+        addDailyWarning(state, date, 'flex', usedDays.length);
+      } else {
+        missed.push(...missedDaily.map(item => item.name));
+      }
+    }
+    if (missed.length) {
+      applyPenalty(state, date, missed, onEvent);
+      addDailyWarning(state, date, 'penalty', usedDays.length);
+    }
     else if (required.length) {
       state.profile.streak += 1;
       state.profile.bestStreak = Math.max(state.profile.bestStreak, state.profile.streak);
-      state.heatmap[date] = { complete: true };
+      state.heatmap[date] ||= { complete: true };
     }
     const nextDate = new Date(cursor); nextDate.setDate(nextDate.getDate() + 1);
     if (getWeekKey(nextDate) !== getWeekKey(cursor)) closeWeekly(state, getWeekKey(cursor), onEvent);
@@ -116,12 +196,34 @@ export function processPendingDays(state, today = todayLocalISO(), onEvent = () 
   }
 }
 
+function addDailyWarning(state, date, type, usedFlexDays, reason = 'daily') {
+  state.dailyWarnings ||= [];
+  const existing = state.dailyWarnings.find(warning => warning.date === date);
+  if (existing) {
+    if (type === 'penalty') {
+      existing.type = type;
+      existing.remainingFlexDays = Math.max(0, FLEX_DAYS_PER_WEEK - usedFlexDays);
+      existing.reason = reason;
+    }
+    return;
+  }
+  state.dailyWarnings.push({
+    id: date,
+    date,
+    type,
+    reason,
+    usedFlexDays,
+    remainingFlexDays: Math.max(0, FLEX_DAYS_PER_WEEK - usedFlexDays)
+  });
+}
+
 export function completePenaltyTasks(state, taskId, checked) {
   const tasks = state.penalties.completedTasks;
   state.penalties.completedTasks = checked ? [...new Set([...tasks, taskId])] : tasks.filter(id => id !== taskId);
   if (state.punishmentTasks.length > 0 && state.punishmentTasks.every(task => state.penalties.completedTasks.includes(task.id))) {
     state.penalties.active = false;
     state.penalties.missedList = [];
+    state.dailyWarnings = (state.dailyWarnings || []).filter(warning => warning.type !== 'penalty');
   }
 }
 

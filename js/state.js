@@ -3,10 +3,13 @@ import { todayLocalISO, id } from './utils.js';
 export const XP_BY_DIFF = { easy: 10, medium: 15, hard: 25 };
 export const XP_LOSS_MISS = 25;
 export const XP_LOSS_EXTRA = 15;
-export const XP_LOSS_WEEKLY_MISS = 8;
-export const XP_LOSS_MONTHLY_MISS = 8;
+export const PERIOD_MISS_XP_RATE = 0.5;
 export const BASE_XP_NEXT = 100;
 export const GROWTH = 1.12;
+export const FLEX_DAYS_PER_WEEK = 2;
+export const DAILY_FLEX_THRESHOLD = 0.8;
+export const NON_NEGOTIABLE_XP_RATE = 0.03;
+export const DAILY_COMPLETION_BONUS_RATE = 0.02;
 
 export const DEFAULT_CATEGORIES = [
   ['Cognitiva', '#8b5cf6', 'brain'], ['Física', '#22c55e', 'pulse'],
@@ -32,6 +35,8 @@ export function createDefaultState() {
     nonNegotiables: [],
     habits: [],
     completions: {},
+    weeklyFlexibility: {},
+    dailyWarnings: [],
     levelHistory: [{ level: 1, date: today, iso: new Date().toISOString(), rank: 'E' }],
     penalties: { active: false, triggeredAt: null, missedList: [], extraApplied: false, completedTasks: [] },
     punishmentTasks: [
@@ -39,7 +44,7 @@ export function createDefaultState() {
       { id: id('punishment'), text: '10 min lectura' },
       { id: id('punishment'), text: 'Ducha fría' }
     ],
-    settings: { notifications: { enabled: false, dailyTime: '20:00', permission: 'default' }, penalty: {}, xpTable: { ...XP_BY_DIFF }, level: { base: BASE_XP_NEXT, growth: GROWTH }, ranks: {}, onboardingDone: false, reduceMotion: false, themeColor: '#0a0612' },
+    settings: { penalty: {}, xpTable: { ...XP_BY_DIFF }, level: { base: BASE_XP_NEXT, growth: GROWTH }, ranks: {}, onboardingDone: false, reduceMotion: false, themeColor: '#0a0612' },
     shadows: SHADOW_POOL.map(shadow => ({ ...shadow })),
     heatmap: {}
   };

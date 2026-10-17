@@ -8,7 +8,12 @@ SISTEMA es una aplicación progresiva de hábitos para móvil. Convierte tus com
 - Inicio permite marcar todas las misiones de hoy; en Hábitos se gestionan las misiones y, en un apartado propio, sus categorías.
 - El XP no es editable: dificultad fácil/media/difícil otorga 10%/15%/25% del XP requerido para el siguiente nivel, escalando automáticamente con el nivel.
 - Los objetivos semanales indican cuántas veces completar una misión antes de que termine la semana. Los hábitos mensuales se consideran cumplidos al completarlos al menos una vez dentro del mes.
-- Las notificaciones disponibles son recordatorios generales configurados en Ajustes; no hay recordatorios individuales por hábito.
+- Dos días por semana (de lunes a domingo) pueden contar como flexibles si se completó al menos el 80% de los hábitos diarios activos, redondeado hacia arriba. Todos los no negociables activos deben estar completos.
+- Al procesar un día flexible incompleto, Inicio muestra una advertencia y el saldo de flexibilidad restante. Si no queda flexibilidad o faltó un no negociable, se activa el castigo en un diálogo de pantalla completa que no se puede cerrar hasta completar todas sus tareas.
+- Los hábitos semanales deben alcanzar su objetivo antes del cierre del domingo; los mensuales deben completarse antes del último día natural del mes. Al cerrar un periodo incumplido, se activa el mismo castigo y se pierde el 50% del XP requerido en el nivel actual por cada hábito vencido, además de la penalización normal de 25 XP por activar el castigo. La pérdida se acumula y puede hacer descender niveles; no se puede bajar del nivel 1.
+- Cada no negociable completado otorga 3% del XP requerido para subir el nivel actual. Completar todos los hábitos diarios activos y no negociables otorga un bonus diario adicional del 2%; se obtiene una sola vez al cumplirlos simultáneamente.
+- Al completar una misión, su casilla queda bloqueada ese día y no se puede desmarcar. Los hábitos semanales y mensuales pueden volver a marcarse en otros días del periodo.
+- Los porcentajes se calculan sobre el requisito de XP del nivel actual; no son cantidades configurables ni fijas.
 - XP, niveles del 1 al 100, rachas, historial y animaciones de ascenso.
 - Seis sombras que se desbloquean secuencialmente al renacer en el nivel 100.
 - PWA instalable, funcionamiento offline tras la primera carga y diseño adaptable con soporte de safe-area.
@@ -34,12 +39,12 @@ También se puede usar `live-server`. Abre la URL local que indique el servidor.
 
 ## Requisitos
 
-Navegador moderno con soporte para Service Worker, módulos ES, localStorage y Notification API. Para instalar la PWA y usar todas las funciones, la aplicación debe estar servida mediante HTTPS (localhost se considera seguro para desarrollo).
+Navegador moderno con soporte para Service Worker, módulos ES y localStorage. Para instalar la PWA y usar todas las funciones, la aplicación debe estar servida mediante HTTPS (localhost se considera seguro para desarrollo).
 
 ## PWA en móvil
 
 - **Android:** abre la app en Chrome o Edge y elige «Añadir a pantalla de inicio» / «Instalar aplicación».
-- **iOS:** en Safari usa «Compartir > Añadir a pantalla de inicio». El nombre y el icono de inicio están configurados para mostrar «SISTEMA». La experiencia de notificaciones requiere una PWA instalada y funciona mejor en iOS 16.4 o posterior.
+- **iOS:** en Safari usa «Compartir > Añadir a pantalla de inicio». El nombre y el icono de inicio están configurados para mostrar «SISTEMA».
 - El manifiesto PWA incluye el nombre «SISTEMA» y los iconos normales y maskable para Android/Chrome. Si ya habías instalado una versión anterior, elimina el acceso anterior y vuelve a añadir la app para que el teléfono actualice su nombre e icono.
 
 ## Despliegue en GitHub Pages
@@ -51,14 +56,6 @@ Navegador moderno con soporte para Service Worker, módulos ES, localStorage y N
 5. Espera la publicación y abre la URL indicada por GitHub Pages.
 
 Los enlaces, el manifiesto y el registro del Service Worker utilizan rutas relativas, por lo que la app funciona también publicada bajo una subruta de repositorio. `.nojekyll` evita que GitHub Pages omita archivos.
-
-## Limitaciones de notificaciones
-
-- Esta versión **no incluye servidor push**. No se envían notificaciones Web Push remotas.
-- Los temporizadores de página y Periodic Background Sync dependen del navegador y del sistema operativo; **con la app totalmente cerrada no se garantiza el aviso**.
-- La entrega funciona mejor con la app abierta o en segundo plano. La disponibilidad de Periodic Background Sync varía entre navegadores.
-- En **iOS** hay que instalar la PWA en la pantalla de inicio para habilitar notificaciones web; se recomienda iOS 16.4 o posterior.
-- El permiso solo se solicita cuando el usuario pulsa «Activar recordatorios» en Ajustes. Notification Triggers no se usa porque su soporte continúa siendo experimental.
 
 ## Iconografía
 
@@ -88,7 +85,7 @@ Los datos se guardan en `localStorage` con la clave `sistema_v1`. Usa **Ajustes 
 ## Pruebas rápidas
 
 1. Abre la app por primera vez y acepta el protocolo de bienvenida.
-2. En Hábitos, crea una categoría/hábito y completa la misión de hoy; comprueba el XP y prueba desmarcarla.
+2. En Hábitos, crea una categoría/hábito y completa la misión de hoy; comprueba el XP y que su casilla quede bloqueada.
 3. Crea un no negociable, deja una misión pendiente y confirma la penalización al procesar un día posterior.
 4. Completa todas las tareas de castigo, exporta un JSON y prueba importar una copia.
 5. Comprueba las seis pestañas, el heatmap, las sombras bloqueadas y el diseño móvil.

@@ -89,11 +89,13 @@ main { padding: 24px 18px 30px; }
 .danger-text { color: #fca5a5; border-color: rgba(239, 68, 68, .35); }
 .awaken-button { width: 100%; min-height: 54px; margin: 0 0 15px; letter-spacing: .13em; background: linear-gradient(100deg, #581c87, #7e22ce, #581c87); border-color: #c084fc; box-shadow: 0 0 25px rgba(192, 132, 252, .55); animation: awaken-glow 1.6s ease-in-out infinite alternate; }
 .button .icon { width: 17px; height: 17px; }
-.weekly-skill-home { width: 100%; min-height: 72px; justify-content: flex-start; margin: 0 0 15px; padding: 14px 16px; text-align: left; }
+.weekly-skill-home-panel { padding-bottom: 12px; }
+.weekly-skill-home { width: 100%; min-height: 64px; justify-content: flex-start; margin: 0; padding: 12px; text-align: left; }
+.weekly-skill-home + .weekly-skill-home { margin-top: 8px; }
 .weekly-skill-home > .icon { width: 25px; height: 25px; color: var(--glow); }
 .weekly-skill-home-copy { min-width: 0; display: grid; gap: 4px; }
 .weekly-skill-home-copy .eyebrow { margin: 0; font-size: 9px; }
-.weekly-skill-home-copy strong, .weekly-skill-title { overflow-wrap: anywhere; color: var(--text); font-size: 15px; line-height: 1.4; }
+.weekly-skill-home-copy strong, .weekly-skill-title { overflow-wrap: anywhere; color: var(--text); font-size: 16px; line-height: 1.4; }
 .weekly-skill-card { padding: 14px 0; border-top: 1px solid rgba(168, 85, 247, .16); }
 .weekly-skill-card:first-of-type { margin-top: 10px; }
 .weekly-skill-card .weekly-skill-title { margin: 0; }
@@ -101,7 +103,11 @@ main { padding: 24px 18px 30px; }
 .weekly-skill-description { white-space: pre-wrap; line-height: 1.65; }
 .weekly-skill-form { gap: 2px; }
 .panel-heading .small { white-space: nowrap; }
-.mission-group-label { margin: 16px 0 9px; }
+.mission-group-label { margin: 18px 0 9px; font-size: 13px; letter-spacing: .18em; }
+.home-period-panel { padding: 16px; }
+.home-period-panel + .home-period-panel { margin-top: 10px; }
+.home-period-panel .panel-heading { align-items: center; margin-bottom: 8px; }
+.home-period-panel .panel-title { font-size: 17px; }
 .quest-row { min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(168, 85, 247, .12); cursor: pointer; }
 .quest-row.mandatory { border-left: 2px solid #f59e0b; padding-left: 9px; }
 .quest-check { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -147,6 +153,18 @@ main { padding: 24px 18px 30px; }
 .habits-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px; margin: 0 0 16px; border: 1px solid rgba(168, 85, 247, .24); border-radius: 9px; background: rgba(8, 4, 15, .55); }
 .habits-tab { border-color: transparent; background: transparent; color: var(--muted); }
 .habits-tab.active { border-color: rgba(168, 85, 247, .55); background: rgba(124, 58, 237, .2); color: #f3e8ff; box-shadow: inset 0 0 15px rgba(124, 58, 237, .13); }
+.habit-frequency-group { padding: 0 15px; overflow: hidden; }
+.habit-frequency-group + .habit-frequency-group { margin-top: 10px; }
+.habit-frequency-summary { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.habit-frequency-summary::-webkit-details-marker { display: none; }
+.habit-frequency-summary::after { content: ""; width: 8px; height: 8px; flex: 0 0 8px; border-right: 2px solid var(--glow); border-bottom: 2px solid var(--glow); transform: rotate(45deg) translateY(-2px); transition: transform .2s; }
+.habit-frequency-group[open] > .habit-frequency-summary::after { transform: rotate(225deg) translateY(-2px); }
+.habit-frequency-summary strong { font-size: 16px; }
+.habit-frequency-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.habit-category-group { padding: 0 0 8px; }
+.habit-category-heading { display: flex; align-items: center; gap: 9px; margin: 7px 0 0; padding: 10px 2px 6px; border-top: 1px solid rgba(168, 85, 247, .18); color: #d8b4fe; font-size: 13px; letter-spacing: .04em; }
+.habit-category-heading .category-dot { width: 9px; height: 9px; flex-basis: 9px; margin: 0; }
+.habit-category-group .item-card { margin-bottom: 8px; }
 .category-section-intro { margin: 0 0 12px; }
 .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 16px; }
 .toolbar .button { grid-column: 1 / -1; }

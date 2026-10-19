@@ -11,6 +11,7 @@ let currentView = 'home';
 let currentFrequency = 'all';
 let currentCategory = 'all';
 let currentHabitSection = 'missions';
+let habitFrequencyOpen = { daily: true, weekly: false, monthly: false };
 let toastTimer;
 let epicQueue = [];
 let epicShowing = false;
@@ -241,13 +242,12 @@ function renderHome() {
     awakenButton.setAttribute('aria-label', 'Despertar y reiniciar el nivel');
     root.append(awakenButton);
   }
-  for (const skill of state.weeklySkill.current.skills) {
-    const skillCard = button('', 'weekly-skill-home panel', () => navigate('weekly-skill'), 'brain');
-    skillCard.setAttribute('aria-label', `Habilidad de la semana: ${skill.title}. Abrir habilidades`);
-    const skillCopy = element('span', 'weekly-skill-home-copy');
-    skillCopy.append(element('span', 'eyebrow', 'HABILIDAD DE LA SEMANA'), element('strong', '', skill.title));
-    skillCard.append(skillCopy);
-    root.append(skillCard);
+  if (state.weeklySkill.current.skills.length) {
+    const multipleSkills = state.weeklySkill.current.skills.length > 1;
+    const skillPanel = panel(multipleSkills ? 'Habilidades de la semana' : 'Habilidad de la semana', weekRangeLabel(state.weeklySkill.current.weekKey));
+    skillPanel.classList.add('weekly-skill-home-panel');
+    state.weeklySkill.current.skills.forEach(skill => skillPanel.append(renderHomeSkillButton(skill)));
+    root.append(skillPanel);
   }
   if (state.dailyWarnings?.length) root.append(renderDailyWarnings());
   const missionPanel = panel('Misiones de hoy', todayLocalISO());
@@ -268,24 +268,37 @@ function renderHome() {
       : 'Los días flexibles aplican cuando hay hábitos diarios; todos los no negociables siguen siendo obligatorios.')
   );
   missionPanel.append(flexStatus);
-  missionPanel.append(element('p', 'eyebrow mission-group-label', 'NO NEGOCIABLES'));
+  missionPanel.append(element('h3', 'eyebrow mission-group-label', 'NO NEGOCIABLES'));
   if (nonNeg.length) nonNeg.forEach(item => missionPanel.append(renderQuest(item, 'nonNegotiables', true)));
   else missionPanel.append(emptyText('Aún no has definido misiones no negociables.'));
-  missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS DIARIOS'));
+  missionPanel.append(element('h3', 'eyebrow mission-group-label', 'HÁBITOS DIARIOS'));
   if (dailyItems.length) dailyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
   else missionPanel.append(emptyText('No hay hábitos diarios activos.'));
-  missionPanel.append(element('p', 'eyebrow mission-group-label', 'HÁBITOS SEMANALES · CIERRE DOMINGO'));
-  if (weeklyItems.length) weeklyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
-  else missionPanel.append(emptyText('No hay hábitos semanales activos.'));
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 12);
-  missionPanel.append(element('p', 'eyebrow mission-group-label', `HÁBITOS MENSUALES · CIERRE ${dateLabel(todayLocalISO(monthEnd)).toLocaleUpperCase('es-ES')}`));
-  if (monthlyItems.length) monthlyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
-  else missionPanel.append(emptyText('No hay hábitos mensuales activos.'));
   missionPanel.append(element('p', 'muted small daily-bonus-hint', `Bonus diario: ${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}% del requisito de XP del nivel actual al completar todos los hábitos diarios y no negociables. Solo se obtiene una vez por día.`));
   root.append(missionPanel);
+  root.append(renderHomePeriodPanel('weekly', 'Hábitos semanales', 'CIERRE DOMINGO', weeklyItems));
+  root.append(renderHomePeriodPanel('monthly', 'Hábitos mensuales', `CIERRE ${dateLabel(todayLocalISO(monthEnd)).toLocaleUpperCase('es-ES')}`, monthlyItems));
   const addRow = element('div', 'action-row');
   addRow.append(button('Añadir hábito', 'button-secondary', () => openHabitForm()), button('Añadir no negociable', 'button-secondary', () => openNonNegotiableForm()));
   root.append(addRow);
+}
+
+function renderHomeSkillButton(skill) {
+  const skillCard = button('', 'weekly-skill-home', () => navigate('weekly-skill'), 'brain');
+  skillCard.setAttribute('aria-label', `Habilidad de la semana: ${skill.title}. Abrir habilidades`);
+  const skillCopy = element('span', 'weekly-skill-home-copy');
+  skillCopy.append(element('span', 'eyebrow', 'ENFOQUE SEMANAL'), element('strong', '', skill.title));
+  skillCard.append(skillCopy);
+  return skillCard;
+}
+
+function renderHomePeriodPanel(period, title, deadline, items) {
+  const section = panel(title, deadline);
+  section.classList.add('home-period-panel');
+  if (items.length) items.forEach(item => section.append(renderQuest(item, 'habits')));
+  else section.append(emptyText(`No hay ${period === 'weekly' ? 'hábitos semanales' : 'hábitos mensuales'} activos.`));
+  return section;
 }
 
 function renderWeeklySkill() {
@@ -539,7 +552,43 @@ function renderHabits() {
   root.append(toolbar);
   const habits = state.habits.filter(item => (currentFrequency === 'all' || item.frequency === currentFrequency) && (currentCategory === 'all' || item.categoryId === currentCategory));
   if (!habits.length) root.append(emptyPanel('Sin misiones por ahora', 'Crea un hábito para empezar a ganar experiencia.'));
-  for (const habit of habits) root.append(habitCard(habit));
+  const frequencies = [
+    ['daily', 'Hábitos diarios'],
+    ['weekly', 'Hábitos semanales'],
+    ['monthly', 'Hábitos mensuales']
+  ];
+  for (const [frequencyKey, frequencyTitle] of frequencies) {
+    if (currentFrequency !== 'all' && currentFrequency !== frequencyKey) continue;
+    const frequencyHabits = habits.filter(habit => habit.frequency === frequencyKey);
+    if (!frequencyHabits.length) continue;
+    const frequencyGroup = element('details', 'habit-frequency-group panel');
+    frequencyGroup.open = habitFrequencyOpen[frequencyKey];
+    frequencyGroup.addEventListener('toggle', () => { habitFrequencyOpen[frequencyKey] = frequencyGroup.open; });
+    const frequencySummary = element('summary', 'habit-frequency-summary');
+    const missionCount = frequencyHabits.length;
+    frequencySummary.append(element('strong', '', frequencyTitle), element('span', 'habit-frequency-count', `${missionCount} ${missionCount === 1 ? 'misión' : 'misiones'}`));
+    frequencyGroup.append(frequencySummary);
+    for (const category of state.categories) {
+      const categoryHabits = frequencyHabits.filter(habit => habit.categoryId === category.id);
+      if (!categoryHabits.length) continue;
+      const categoryGroup = element('section', 'habit-category-group');
+      const categoryHeading = element('h3', 'habit-category-heading');
+      const categoryMarker = element('span', 'category-dot');
+      categoryMarker.style.backgroundColor = category.color;
+      categoryHeading.append(categoryMarker, element('span', '', category.name));
+      categoryGroup.append(categoryHeading);
+      categoryHabits.forEach(habit => categoryGroup.append(habitCard(habit)));
+      frequencyGroup.append(categoryGroup);
+    }
+    const uncategorized = frequencyHabits.filter(habit => !state.categories.some(category => category.id === habit.categoryId));
+    if (uncategorized.length) {
+      const categoryGroup = element('section', 'habit-category-group');
+      categoryGroup.append(element('h3', 'habit-category-heading', 'Sin categoría'));
+      uncategorized.forEach(habit => categoryGroup.append(habitCard(habit)));
+      frequencyGroup.append(categoryGroup);
+    }
+    root.append(frequencyGroup);
+  }
   root.append(element('h2', 'list-heading', 'No negociables'));
   root.append(button('Nuevo no negociable', 'button-secondary', () => openNonNegotiableForm(), 'shield'));
   if (!state.nonNegotiables.length) root.append(emptyText('Todavía no hay no negociables.'));
@@ -761,6 +810,7 @@ function openHabitForm(existing) {
     delete habit.monthlyTarget;
     if (!habit.name || !habit.categoryId) { toast('Completa el nombre y crea o selecciona una categoría.'); return false; }
     if (existing) Object.assign(existing, habit); else state.habits.push(habit);
+    if (currentView === 'habits') habitFrequencyOpen[selectedFrequency] = true;
     persist(); renderCurrent(); return true;
   });
 }

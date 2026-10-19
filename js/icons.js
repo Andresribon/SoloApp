@@ -1,9 +1,9 @@
 const paths = {
-  home: '<path d="M3 10.5 12 3l9 7.5v10H5v-8h14"/>',
-  check: '<path d="m4 12 5 5L20 6"/><path d="M4 4h5M4 20h5"/>',
+  home: '<path d="m2.5 10 9.5-7.5 9.5 7.5"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/><path d="M8 10h2v2H8zm6 0h2v2h-2z"/>',
+  check: '<path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3"/><path d="M9 3h6l1 3H8z"/><path d="m7 11 1.5 1.5L11 10m2 2h4m-10 4 1.5 1.5L11 16m2 2h4"/>',
   tag: '<path d="M3 4h9l9 9-8 8-10-10z"/><circle cx="8" cy="9" r="1"/>',
   stats: '<path d="M4 20h17M6 17V9m6 8V4m6 13v-6"/>',
-  shadows: '<path d="m12 3 3 5 5-2-2 6 3 4-6 1-3 4-3-4-6-1 3-5-1-5 5 2z"/>',
+  shadows: '<path d="m12 2 5 3v4c0 3-2 5-5 6-3-1-5-3-5-6V5z"/><path d="m8 14-4 2-2 5 6-2 2 3 2-4 2 4 2-3 6 2-2-5-4-2"/><path d="m9 8 3-2 3 2-1 4h-4z"/><path d="M10 9h1m2 0h1m-3 2h2"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="m19 13 2 1-2 4-2-1-2 1v2H9v-2l-2-1-2 1-2-4 2-1v-2l-2-1 2-4 2 1 2-1V4h6v2l2 1 2-1 2 4-2 1z"/>',
   shield: '<path d="M12 3 4 6v5c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"/><path d="m8 12 3 3 5-6"/>',
   warning: '<path d="m12 3 10 18H2z"/><path d="M12 9v5m0 3v.1"/>',

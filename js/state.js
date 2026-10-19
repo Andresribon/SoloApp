@@ -1,6 +1,7 @@
 import { todayLocalISO, id } from './utils.js';
 
 export const XP_BY_DIFF = { easy: 10, medium: 15, hard: 25 };
+export const XP_BY_FREQUENCY = { daily: 1, weekly: 2, monthly: 3 };
 export const XP_LOSS_MISS = 25;
 export const XP_LOSS_EXTRA = 15;
 export const PERIOD_MISS_XP_RATE = 0.5;
@@ -37,6 +38,7 @@ export function createDefaultState() {
     completions: {},
     weeklyFlexibility: {},
     dailyWarnings: [],
+    weeklySkill: { current: { weekKey: null, skills: [] }, history: [] },
     levelHistory: [{ level: 1, date: today, iso: new Date().toISOString(), rank: 'E' }],
     penalties: { active: false, triggeredAt: null, missedList: [], extraApplied: false, completedTasks: [] },
     punishmentTasks: [

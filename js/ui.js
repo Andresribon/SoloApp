@@ -20,7 +20,8 @@ export function initUI(appState, saveState, eventHandler) {
   state = appState;
   persist = saveState;
   notifyEvent = eventHandler;
-  const navIcons = { home: 'home', habits: 'check', stats: 'stats', shadows: 'shadows', settings: 'gear' };
+  syncWeeklySkill();
+  const navIcons = { home: 'home', habits: 'check', 'weekly-skill': 'brain', stats: 'stats', shadows: 'shadows', settings: 'gear' };
   document.querySelectorAll('.nav-item').forEach(button => {
     const placeholder = button.querySelector('.icon');
     if (placeholder) placeholder.replaceWith(icon(navIcons[button.dataset.view], `icon icon-${navIcons[button.dataset.view]}`));
@@ -57,6 +58,7 @@ function renderAll() {
 }
 
 function renderCurrent() {
+  syncWeeklySkill();
   if (state.penalties.active) {
     currentView = 'home';
     document.querySelectorAll('.view').forEach(view => {
@@ -75,8 +77,23 @@ function renderCurrent() {
     document.querySelector('.app-shell').inert = false;
     document.body.classList.remove('penalty-open');
   }
-  const renderers = { home: renderHome, habits: renderHabits, stats: renderStats, shadows: renderShadows, settings: renderSettings };
+  const renderers = { home: renderHome, habits: renderHabits, 'weekly-skill': renderWeeklySkill, stats: renderStats, shadows: renderShadows, settings: renderSettings };
   renderers[currentView]();
+}
+
+function syncWeeklySkill() {
+  const weekKey = getWeekKey(parseDateKey(todayLocalISO()));
+  state.weeklySkill ||= { current: { weekKey, title: '', description: '' }, history: [] };
+  state.weeklySkill.history ||= [];
+  if (!state.weeklySkill.current || state.weeklySkill.current.weekKey !== weekKey) {
+    const previous = state.weeklySkill.current;
+    if (previous?.skills?.length) {
+      state.weeklySkill.history = state.weeklySkill.history.filter(entry => entry.weekKey !== previous.weekKey);
+      state.weeklySkill.history.push({ ...previous });
+    }
+    state.weeklySkill.current = { weekKey, skills: [] };
+    persist();
+  }
 }
 
 function heading(title, eyebrow = 'VENTANA DE ESTADO') {
@@ -224,6 +241,14 @@ function renderHome() {
     awakenButton.setAttribute('aria-label', 'Despertar y reiniciar el nivel');
     root.append(awakenButton);
   }
+  for (const skill of state.weeklySkill.current.skills) {
+    const skillCard = button('', 'weekly-skill-home panel', () => navigate('weekly-skill'), 'brain');
+    skillCard.setAttribute('aria-label', `Habilidad de la semana: ${skill.title}. Abrir habilidades`);
+    const skillCopy = element('span', 'weekly-skill-home-copy');
+    skillCopy.append(element('span', 'eyebrow', 'HABILIDAD DE LA SEMANA'), element('strong', '', skill.title));
+    skillCard.append(skillCopy);
+    root.append(skillCard);
+  }
   if (state.dailyWarnings?.length) root.append(renderDailyWarnings());
   const missionPanel = panel('Misiones de hoy', todayLocalISO());
   const dailyItems = state.habits.filter(habit => habit.active !== false && habit.frequency === 'daily');
@@ -261,6 +286,86 @@ function renderHome() {
   const addRow = element('div', 'action-row');
   addRow.append(button('Añadir hábito', 'button-secondary', () => openHabitForm()), button('Añadir no negociable', 'button-secondary', () => openNonNegotiableForm()));
   root.append(addRow);
+}
+
+function renderWeeklySkill() {
+  const root = document.getElementById('view-weekly-skill');
+  root.replaceChildren();
+  root.append(heading('Habilidad de la semana', 'ENTRENAMIENTO DEL CAZADOR'));
+  const current = state.weeklySkill.current;
+  const currentPanel = panel('Enfoques actuales', weekRangeLabel(current.weekKey));
+  currentPanel.append(button('Añadir habilidad', 'button-primary', () => openWeeklySkillForm(), 'brain'));
+  if (current.skills.length) {
+    for (const skill of current.skills) currentPanel.append(renderWeeklySkillCard(skill, false));
+  } else {
+    currentPanel.append(emptyText('Todavía no has añadido una habilidad para esta semana.'));
+  }
+  root.append(currentPanel);
+  const previousWeekKey = getWeekKey(parseDateKey(current.weekKey));
+  const previousMonday = parseDateKey(previousWeekKey);
+  previousMonday.setDate(previousMonday.getDate() - 7);
+  const previousKey = todayLocalISO(previousMonday);
+  const previous = state.weeklySkill.history.find(entry => entry.weekKey === previousKey);
+  const previousPanel = panel('Habilidades de la semana pasada', weekRangeLabel(previousKey));
+  if (previous?.skills.length) previous.skills.forEach(skill => previousPanel.append(renderWeeklySkillCard(skill, true)));
+  else previousPanel.append(emptyText('Todavía no hay habilidades guardadas para la semana pasada.'));
+  root.append(previousPanel);
+}
+
+function renderWeeklySkillCard(skill, readOnly) {
+  const card = element('article', 'weekly-skill-card');
+  card.append(element('h3', 'weekly-skill-title', skill.title));
+  card.append(element('p', 'muted weekly-skill-description', skill.description || 'Sin descripción.'));
+  if (!readOnly) {
+    const actions = element('div', 'item-actions');
+    actions.append(
+      button('Editar', 'button-small', () => openWeeklySkillForm(skill)),
+      button('Eliminar', 'button-small danger-text', () => confirmAction(`¿Eliminar la habilidad “${skill.title}”?`, () => {
+        state.weeklySkill.current.skills = state.weeklySkill.current.skills.filter(item => item.id !== skill.id);
+        persist();
+        renderWeeklySkill();
+      }))
+    );
+    card.append(actions);
+  }
+  return card;
+}
+
+function openWeeklySkillForm(existing) {
+  const form = element('form', 'modal-form weekly-skill-form');
+  const title = inputControl('Habilidad que quieres aprender', 'text', existing?.title || '', true);
+  title.input.maxLength = 120;
+  title.input.placeholder = 'Ej. Cocinar recetas saludables';
+  const description = textareaControl('Descripción y plan de aprendizaje', existing?.description || '');
+  description.input.maxLength = 2000;
+  description.input.placeholder = '¿Qué quieres aprender y cómo vas a practicarlo esta semana?';
+  form.append(title.wrapper, description.wrapper);
+  showModal(existing ? 'Editar habilidad semanal' : 'Añadir habilidad semanal', form, existing ? 'Guardar cambios' : 'Guardar habilidad', () => {
+    const cleanTitle = title.input.value.trim();
+    if (!cleanTitle) {
+      toast('Escribe el nombre de la habilidad que quieres aprender.');
+      return false;
+    }
+    const skill = {
+      id: existing?.id || id('skill'),
+      title: cleanTitle.slice(0, 120),
+      description: description.input.value.trim().slice(0, 2000)
+    };
+    if (existing) Object.assign(existing, skill);
+    else state.weeklySkill.current.skills.push(skill);
+    persist();
+    renderWeeklySkill();
+    toast(existing ? 'Cambios guardados.' : 'Habilidad añadida.');
+    return true;
+  });
+}
+
+function weekRangeLabel(weekKey) {
+  if (!weekKey) return '';
+  const monday = parseDateKey(weekKey);
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 6);
+  return `${dateLabel(todayLocalISO(monday))} – ${dateLabel(todayLocalISO(sunday))}`;
 }
 
 function metric(label, value) {
@@ -627,7 +732,7 @@ function openHabitForm(existing) {
   const target = inputControl('Objetivo semanal (veces)', 'number', existing?.weeklyTarget || 3);
   target.input.min = '1'; target.input.max = '99';
   const active = checkboxControl('Misión activa', existing?.active !== false);
-  const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad: fácil 10%, media 15% y difícil 25% de la experiencia necesaria para tu siguiente nivel. La recompensa escala con tu nivel y no se puede editar.');
+  const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad y frecuencia: diario 1×, semanal 2× y mensual 3× la recompensa base (fácil 10%, media 15%, difícil 25% del XP para subir de nivel). La recompensa escala con tu nivel y no se puede editar.');
   const deadlineHint = element('p', 'muted small field-help');
   form.append(name.wrapper, description.wrapper, category.fieldWrapper, frequency.fieldWrapper, difficulty.fieldWrapper, xpExplanation, deadlineHint, target.wrapper, active.wrapper);
   const updateTargetField = () => {

@@ -1,4 +1,5 @@
 import { createDefaultState, SHADOW_POOL } from './state.js';
+import { id } from './utils.js';
 
 export const STORAGE_KEY = 'sistema_v1';
 
@@ -27,6 +28,13 @@ export function migrate(input) {
         remainingFlexDays: Number.isInteger(warning.remainingFlexDays) ? warning.remainingFlexDays : 0
       }))
     : [];
+  const weeklySkill = data.weeklySkill && typeof data.weeklySkill === 'object' ? data.weeklySkill : {};
+  result.weeklySkill = {
+    current: normalizeWeeklySkillWeek(weeklySkill.current, base.weeklySkill.current),
+    history: Array.isArray(weeklySkill.history)
+      ? weeklySkill.history.map(entry => normalizeWeeklySkillWeek(entry, null)).filter(Boolean)
+      : []
+  };
   result.levelHistory = Array.isArray(data.levelHistory) ? data.levelHistory : base.levelHistory;
   result.punishmentTasks = Array.isArray(data.punishmentTasks) ? data.punishmentTasks : base.punishmentTasks;
   result.penalties = { ...base.penalties, ...(data.penalties || {}) };
@@ -36,6 +44,26 @@ export function migrate(input) {
   result.heatmap = data.heatmap && typeof data.heatmap === 'object' ? data.heatmap : {};
   if (version < 1) result.schemaVersion = 1;
   return result;
+}
+
+function normalizeWeeklySkillWeek(week, fallback) {
+  if (!week || typeof week !== 'object') return fallback;
+  const weekKey = typeof week.weekKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(week.weekKey)
+    ? week.weekKey
+    : fallback?.weekKey || null;
+  const legacySkill = typeof week.title === 'string' && week.title.trim()
+    ? [{ id: id('skill'), title: week.title, description: week.description }]
+    : [];
+  const sourceSkills = Array.isArray(week.skills) ? week.skills : legacySkill;
+  const skills = sourceSkills
+    .filter(skill => skill && typeof skill.title === 'string' && skill.title.trim())
+    .map(skill => ({
+      id: typeof skill.id === 'string' && skill.id ? skill.id : id('skill'),
+      title: skill.title.trim().slice(0, 120),
+      description: typeof skill.description === 'string' ? skill.description.trim().slice(0, 2000) : ''
+    }));
+  if (!weekKey && !skills.length) return fallback;
+  return { weekKey, skills };
 }
 
 export function load() {

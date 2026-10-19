@@ -1,4 +1,4 @@
-import { XP_BY_DIFF, XP_LOSS_MISS, XP_LOSS_EXTRA, PERIOD_MISS_XP_RATE, BASE_XP_NEXT, GROWTH, FLEX_DAYS_PER_WEEK, DAILY_FLEX_THRESHOLD, NON_NEGOTIABLE_XP_RATE, DAILY_COMPLETION_BONUS_RATE } from './state.js';
+import { XP_BY_DIFF, XP_BY_FREQUENCY, XP_LOSS_MISS, XP_LOSS_EXTRA, PERIOD_MISS_XP_RATE, BASE_XP_NEXT, GROWTH, FLEX_DAYS_PER_WEEK, DAILY_FLEX_THRESHOLD, NON_NEGOTIABLE_XP_RATE, DAILY_COMPLETION_BONUS_RATE } from './state.js';
 import { todayLocalISO, parseDateKey, getWeekKey, getMonthKey } from './utils.js';
 
 export const RANKS = [
@@ -247,7 +247,8 @@ export function xpForHabit(habit, profile = null) {
     ? profile.xpToNext
     : Math.floor(BASE_XP_NEXT * Math.pow(GROWTH, Math.max(0, level - 1)));
   const difficultyShare = XP_BY_DIFF[habit.difficulty] || XP_BY_DIFF.medium;
-  return Math.max(1, Math.round(xpToNext * difficultyShare / 100));
+  const frequencyMultiplier = XP_BY_FREQUENCY[habit.frequency] || XP_BY_FREQUENCY.daily;
+  return Math.max(1, Math.round(xpToNext * difficultyShare * frequencyMultiplier / 100));
 }
 
 export function canLevelUpByDayCompletion() {

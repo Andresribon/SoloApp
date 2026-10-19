@@ -6,7 +6,8 @@ SISTEMA es una aplicación progresiva de hábitos para móvil. Convierte tus com
 
 - Misiones diarias, semanales y mensuales, no negociables, categorías editables y penalizaciones.
 - Inicio permite marcar todas las misiones de hoy; en Hábitos se gestionan las misiones y, en un apartado propio, sus categorías.
-- El XP no es editable: dificultad fácil/media/difícil otorga 10%/15%/25% del XP requerido para el siguiente nivel, escalando automáticamente con el nivel.
+- La pestaña Habilidad permite guardar varias habilidades semanales con título y descripción, editarlas o eliminarlas; Inicio muestra solo cada título y se conservan las habilidades de la semana anterior.
+- El XP no es editable: dificultad fácil/media/difícil otorga 10%/15%/25% del XP requerido para el siguiente nivel. La frecuencia multiplica esa recompensa: diario 1×, semanal 2× y mensual 3×.
 - Los objetivos semanales indican cuántas veces completar una misión antes de que termine la semana. Los hábitos mensuales se consideran cumplidos al completarlos al menos una vez dentro del mes.
 - Dos días por semana (de lunes a domingo) pueden contar como flexibles si se completó al menos el 80% de los hábitos diarios activos, redondeado hacia arriba. Todos los no negociables activos deben estar completos.
 - Al procesar un día flexible incompleto, Inicio muestra una advertencia y el saldo de flexibilidad restante. Si no queda flexibilidad o faltó un no negociable, se activa el castigo en un diálogo de pantalla completa que no se puede cerrar hasta completar todas sus tareas.
@@ -88,8 +89,9 @@ Los datos se guardan en `localStorage` con la clave `sistema_v1`. Usa **Ajustes 
 2. En Hábitos, crea una categoría/hábito y completa la misión de hoy; comprueba el XP y que su casilla quede bloqueada.
 3. Crea un no negociable, deja una misión pendiente y confirma la penalización al procesar un día posterior.
 4. Completa todas las tareas de castigo, exporta un JSON y prueba importar una copia.
-5. Comprueba las seis pestañas, el heatmap, las sombras bloqueadas y el diseño móvil.
-6. Con HTTPS o localhost, recarga una vez y prueba la app sin conexión.
+5. Guarda varias habilidades semanales con descripción, edítalas/elimina alguna, comprueba los títulos enlazados desde Inicio y revisa el historial de la semana anterior.
+6. Comprueba las pestañas, el heatmap, las sombras bloqueadas y el diseño móvil.
+7. Con HTTPS o localhost, recarga una vez y prueba la app sin conexión.
 
 ## Estructura
 

@@ -465,14 +465,14 @@ function metric(label, value) {
   return box;
 }
 
-function renderQuest(item, kind, mandatory = false) {
+function renderQuest(item, kind, mandatory = false, hideCheckbox = false) {
   const periodProgress = kind === 'habits' && (item.frequency === 'weekly' || item.frequency === 'monthly')
     ? getHabitPeriodProgress(state, item)
     : null;
   const completedToday = isDone(kind, item.id);
   const completedPeriod = Boolean(periodProgress && periodProgress.count >= periodProgress.target);
   const checked = completedToday || completedPeriod;
-  const row = element('label', `quest-row ${mandatory ? 'mandatory' : ''} ${checked ? 'completed' : ''}`);
+  const row = element(hideCheckbox ? 'div' : 'label', `quest-row ${mandatory ? 'mandatory' : ''} ${checked ? 'completed' : ''}`);
   const checkbox = element('input', 'quest-check');
   checkbox.type = 'checkbox';
   checkbox.checked = checked;
@@ -481,7 +481,7 @@ function renderQuest(item, kind, mandatory = false) {
     ? `${item.name}, objetivo cumplido este periodo`
     : completedToday ? `${item.name}, completado hoy` : `Completar ${item.name}`);
   checkbox.addEventListener('change', () => toggleCompletion(kind, item, checkbox.checked));
-  const mark = element('span', 'custom-check');
+  const mark = hideCheckbox ? null : element('span', 'custom-check');
   const content = element('span', 'quest-content');
   content.append(element('strong', '', item.name));
   if (item.description) content.append(element('span', 'muted small', item.description));
@@ -497,22 +497,28 @@ function renderQuest(item, kind, mandatory = false) {
     }
     meta.append(element('span', 'muted small', `+${xpForHabit(item, state.profile)} XP`));
   }
-  row.append(checkbox, mark, content, meta);
+  if (!hideCheckbox) row.append(checkbox, mark);
+  row.append(content, meta);
   return row;
 }
 
 function renderCompletePeriodButton(item) {
   const progress = getHabitPeriodProgress(state, item);
-  if (progress.count >= progress.target) return null;
-  const action = button('Completo', 'button-small complete-period-button', () => completePeriodHabitAtOnce(item));
-  action.setAttribute('aria-label', `Completar de una vez el objetivo de ${item.name}, actualmente ${progress.count} de ${progress.target}`);
+  if (progress.count >= progress.target || progress.target - progress.count > 1) return null;
+  const action = button('Cumplir', 'button-small complete-period-button', () => completePeriodHabitAtOnce(item));
+  action.setAttribute('aria-label', `Cumplir objetivo de ${item.name}, actualmente ${progress.count} de ${progress.target}`);
   return action;
 }
 
 function appendHabitQuest(container, item) {
   const row = element('div', 'period-quest-row');
-  row.append(renderQuest(item, 'habits'));
-  if (item.frequency !== 'daily') {
+  const periodProgress = item.frequency === 'weekly' || item.frequency === 'monthly'
+    ? getHabitPeriodProgress(state, item)
+    : null;
+  const remaining = periodProgress ? periodProgress.target - periodProgress.count : null;
+  const useActionButton = remaining === 1;
+  row.append(renderQuest(item, 'habits', false, useActionButton));
+  if (useActionButton) {
     const completeButton = renderCompletePeriodButton(item);
     if (completeButton) row.append(completeButton);
   }

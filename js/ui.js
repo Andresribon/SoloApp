@@ -239,18 +239,6 @@ function recordPeriodHabitProgress(item, requestedUnits) {
   return { earnedXp, count: progress.count, target: progress.target };
 }
 
-function completePeriodHabitAtOnce(item) {
-  const date = todayLocalISO();
-  const before = getHabitPeriodProgress(state, item, date);
-  if (before.count >= before.target) return;
-  const result = recordPeriodHabitProgress(item, before.target - before.count);
-  state.profile.lastActiveDate = date;
-  state.heatmap[date] = { complete: true };
-  persist();
-  renderAll();
-  toast(`Objetivo completado de una vez · ${result.count}/${result.target} · +${result.earnedXp} XP`);
-}
-
 function updateDailyCompletionBonus(day) {
   day.xpAwards ||= { habits: {}, nonNegotiables: {}, dailyBonus: null };
   const dailyHabits = state.habits.filter(habit => habit.active !== false && habit.frequency === 'daily');
@@ -502,26 +490,9 @@ function renderQuest(item, kind, mandatory = false, hideCheckbox = false) {
   return row;
 }
 
-function renderCompletePeriodButton(item) {
-  const progress = getHabitPeriodProgress(state, item);
-  if (progress.count >= progress.target || progress.target - progress.count > 1) return null;
-  const action = button('Cumplir', 'button-small complete-period-button', () => completePeriodHabitAtOnce(item));
-  action.setAttribute('aria-label', `Cumplir objetivo de ${item.name}, actualmente ${progress.count} de ${progress.target}`);
-  return action;
-}
-
 function appendHabitQuest(container, item) {
   const row = element('div', 'period-quest-row');
-  const periodProgress = item.frequency === 'weekly' || item.frequency === 'monthly'
-    ? getHabitPeriodProgress(state, item)
-    : null;
-  const remaining = periodProgress ? periodProgress.target - periodProgress.count : null;
-  const useActionButton = remaining === 1;
-  row.append(renderQuest(item, 'habits', false, useActionButton));
-  if (useActionButton) {
-    const completeButton = renderCompletePeriodButton(item);
-    if (completeButton) row.append(completeButton);
-  }
+  row.append(renderQuest(item, 'habits'));
   container.append(row);
 }
 

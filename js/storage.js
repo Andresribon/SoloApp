@@ -60,7 +60,11 @@ function normalizeWeeklySkillWeek(week, fallback) {
     .map(skill => ({
       id: typeof skill.id === 'string' && skill.id ? skill.id : id('skill'),
       title: skill.title.trim().slice(0, 120),
-      description: typeof skill.description === 'string' ? skill.description.trim().slice(0, 2000) : ''
+      description: typeof skill.description === 'string' ? skill.description.trim().slice(0, 2000) : '',
+      completed: skill.completed === true,
+      ...(typeof skill.carriedFromWeek === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(skill.carriedFromWeek)
+        ? { carriedFromWeek: skill.carriedFromWeek }
+        : {})
     }));
   if (!weekKey && !skills.length) return fallback;
   return { weekKey, skills };

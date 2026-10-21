@@ -93,12 +93,37 @@ export function applyPenalty(state, date, missedList, onEvent = () => {}) {
   }
 }
 
+function recordedHabitUnits(day, habitId) {
+  const units = Number(day.habitUnits?.[habitId]);
+  if (Number.isFinite(units) && units > 0) return Math.trunc(units);
+  return (day.habits || []).includes(habitId) ? 1 : 0;
+}
+
+function targetForPeriod(habit, periodKey) {
+  const configuredTarget = habit.frequency === 'weekly' ? habit.weeklyTarget : habit.monthlyTarget;
+  return Math.max(1, Number(habit.periodTargets?.[periodKey]) || Number(configuredTarget) || 1);
+}
+
 function periodCount(state, habit, start, end) {
   let count = 0;
   for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
-    if (hasCompletion(state, 'habits', habit.id, todayLocalISO(cursor))) count += 1;
+    const day = state.completions[todayLocalISO(cursor)];
+    if (day) count += recordedHabitUnits(day, habit.id);
   }
   return count;
+}
+
+export function getHabitPeriodProgress(state, habit, date = todayLocalISO()) {
+  const weekly = habit.frequency === 'weekly';
+  const periodKey = weekly ? getWeekKey(parseDateKey(date)) : getMonthKey(parseDateKey(date));
+  const count = Object.entries(state.completions).reduce((total, [dayKey, day]) => {
+    const samePeriod = weekly
+      ? getWeekKey(parseDateKey(dayKey)) === periodKey
+      : getMonthKey(parseDateKey(dayKey)) === periodKey;
+    return total + (samePeriod ? recordedHabitUnits(day, habit.id) : 0);
+  }, 0);
+  const target = targetForPeriod(habit, periodKey);
+  return { count, target, periodKey };
 }
 
 export function closeWeekly(state, endedWeek, onEvent = () => {}) {
@@ -107,7 +132,7 @@ export function closeWeekly(state, endedWeek, onEvent = () => {}) {
   const missedHabits = [];
   for (const habit of state.habits.filter(item => item.active !== false && item.frequency === 'weekly')) {
     const done = periodCount(state, habit, start, end);
-    if (done < Number(habit.weeklyTarget || 1) && habit.lastClosedWeek !== endedWeek) {
+    if (done < targetForPeriod(habit, endedWeek) && habit.lastClosedWeek !== endedWeek) {
       missedHabits.push(habit);
     }
     habit.lastClosedWeek = endedWeek;
@@ -122,7 +147,7 @@ export function closeMonthly(state, endedMonth, onEvent = () => {}) {
   const missedHabits = [];
   for (const habit of state.habits.filter(item => item.active !== false && item.frequency === 'monthly')) {
     const done = periodCount(state, habit, start, end);
-    if (done < 1 && habit.lastClosedMonth !== endedMonth) {
+    if (done < targetForPeriod(habit, endedMonth) && habit.lastClosedMonth !== endedMonth) {
       missedHabits.push(habit);
     }
     habit.lastClosedMonth = endedMonth;

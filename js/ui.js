@@ -1,7 +1,7 @@
 import { element, id, todayLocalISO, dateLabel, parseDateKey, getWeekKey, getMonthKey, clamp } from './utils.js';
 import { icon } from './icons.js';
 import { FLEX_DAYS_PER_WEEK, DAILY_FLEX_THRESHOLD, NON_NEGOTIABLE_XP_RATE, DAILY_COMPLETION_BONUS_RATE } from './state.js';
-import { getRankByLevel, addXp, xpForHabit, xpForNonNegotiable, xpForDailyCompletionBonus, completePenaltyTasks, awaken } from './gamification.js';
+import { getRankByLevel, addXp, xpForHabit, xpForNonNegotiable, xpForDailyCompletionBonus, completePenaltyTasks, awaken, getHabitPeriodProgress } from './gamification.js';
 import { migrate } from './storage.js';
 
 let state;
@@ -88,11 +88,18 @@ function syncWeeklySkill() {
   state.weeklySkill.history ||= [];
   if (!state.weeklySkill.current || state.weeklySkill.current.weekKey !== weekKey) {
     const previous = state.weeklySkill.current;
+    let carryOver = [];
     if (previous?.skills?.length) {
       state.weeklySkill.history = state.weeklySkill.history.filter(entry => entry.weekKey !== previous.weekKey);
-      state.weeklySkill.history.push({ ...previous });
+      state.weeklySkill.history.push({
+        ...previous,
+        skills: previous.skills.map(skill => ({ ...skill, completed: skill.completed === true }))
+      });
+      carryOver = previous.skills
+        .filter(skill => skill.completed !== true)
+        .map(skill => ({ ...skill, completed: false, carriedFromWeek: previous.weekKey }));
     }
-    state.weeklySkill.current = { weekKey, skills: [] };
+    state.weeklySkill.current = { weekKey, skills: carryOver };
     persist();
   }
 }
@@ -123,15 +130,9 @@ function panel(title, subtitle) {
 }
 
 function progressCount(item, date = todayLocalISO()) {
-  if (item.frequency === 'weekly') {
-    const key = getWeekKey(parseDateKey(date));
-    const count = Object.entries(state.completions).filter(([day, value]) => getWeekKey(parseDateKey(day)) === key && value.habits?.includes(item.id)).length;
-    return { count, target: Number(item.weeklyTarget || 1), label: 'esta semana' };
-  }
-  if (item.frequency === 'monthly') {
-    const key = getMonthKey(parseDateKey(date));
-    const count = Object.entries(state.completions).filter(([day, value]) => getMonthKey(parseDateKey(day)) === key && value.habits?.includes(item.id)).length;
-    return { count, label: 'veces este mes' };
+  if (item.frequency === 'weekly' || item.frequency === 'monthly') {
+    const progress = getHabitPeriodProgress(state, item, date);
+    return { ...progress, label: item.frequency === 'weekly' ? 'esta semana' : 'este mes' };
   }
   return { count: state.completions[date]?.habits?.includes(item.id) ? 1 : 0, target: 1, label: 'hoy' };
 }
@@ -146,32 +147,28 @@ function toggleCompletion(kind, item, checked) {
   if (!checked || alreadyCompleted) return;
   state.completions[date] ||= { habits: [], nonNegotiables: [] };
   const day = state.completions[date];
-  day[kind].push(item.id);
   let earnedXp = 0;
   day.xpAwards ||= { habits: {}, nonNegotiables: {}, dailyBonus: null };
   day.xpAwards.habits ||= {};
   day.xpAwards.nonNegotiables ||= {};
   if (kind === 'habits') {
-    const award = day.xpAwards.habits[item.id];
-    if (!award) {
-      earnedXp = xpForHabit(item, state.profile);
-      day.xpAwards.habits[item.id] = { amount: earnedXp, active: true };
-      day.xpByHabit ||= {};
-      day.xpByHabit[item.id] = earnedXp;
-      addXp(state, earnedXp, notifyEvent);
-    } else if (award.active) earnedXp = award.amount;
-    item.history ||= {};
-    item.history[date] = true;
-    if (item.frequency === 'weekly') {
-      item.weeklyProgress ||= {};
-      const key = getWeekKey(parseDateKey(date));
-      item.weeklyProgress[key] = (item.weeklyProgress[key] || 0) + 1;
-    } else if (item.frequency === 'monthly') {
-      item.monthlyProgress ||= {};
-      const key = getMonthKey(parseDateKey(date));
-      item.monthlyProgress[key] = (item.monthlyProgress[key] || 0) + 1;
+    if (item.frequency === 'weekly' || item.frequency === 'monthly') {
+      earnedXp = recordPeriodHabitProgress(item, 1).earnedXp;
+    } else {
+      day[kind].push(item.id);
+      const award = day.xpAwards.habits[item.id];
+      if (!award) {
+        earnedXp = xpForHabit(item, state.profile);
+        day.xpAwards.habits[item.id] = { amount: earnedXp, active: true };
+        day.xpByHabit ||= {};
+        day.xpByHabit[item.id] = earnedXp;
+        addXp(state, earnedXp, notifyEvent);
+      } else if (award.active) earnedXp = award.amount;
+      item.history ||= {};
+      item.history[date] = true;
     }
   } else {
+    day[kind].push(item.id);
     const award = day.xpAwards.nonNegotiables[item.id];
     if (!award) {
       earnedXp = xpForNonNegotiable(state);
@@ -185,14 +182,73 @@ function toggleCompletion(kind, item, checked) {
   }
   state.profile.lastActiveDate = date;
   state.heatmap[date] = { complete: true };
-  const bonusXp = updateDailyCompletionBonus(day);
+  const bonusXp = kind === 'nonNegotiables' || item.frequency === 'daily'
+    ? updateDailyCompletionBonus(day)
+    : 0;
   if (kind === 'habits') {
-    toast(`Misión completada · +${earnedXp} XP${bonusXp ? ` · bonus +${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}%` : ''}`);
+    if (item.frequency === 'weekly' || item.frequency === 'monthly') {
+      const progress = getHabitPeriodProgress(state, item, date);
+      toast(earnedXp
+        ? `Objetivo completado · ${progress.count}/${progress.target} ${progress.label} · +${earnedXp} XP`
+        : `Progreso guardado · ${progress.count}/${progress.target} ${progress.label} · la recompensa llega al completar el objetivo`);
+    } else {
+      toast(`Misión completada · +${earnedXp} XP${bonusXp ? ` · bonus +${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}%` : ''}`);
+    }
   } else {
     toast(`No negociable completado · +${Math.round(NON_NEGOTIABLE_XP_RATE * 100)}% del XP requerido para este nivel${bonusXp ? ` · bonus +${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}%` : ''}`);
   }
   persist();
   renderAll();
+}
+
+function recordPeriodHabitProgress(item, requestedUnits) {
+  const date = todayLocalISO();
+  const before = getHabitPeriodProgress(state, item, date);
+  const unitsToAdd = Math.min(Math.max(0, before.target - before.count), requestedUnits);
+  if (!unitsToAdd) return { earnedXp: 0, count: before.count, target: before.target };
+
+  state.completions[date] ||= { habits: [], nonNegotiables: [] };
+  const day = state.completions[date];
+  day.habits ||= [];
+  day.habitUnits ||= {};
+  item.periodTargets ||= {};
+  item.periodTargets[before.periodKey] ||= before.target;
+  const existingUnits = Number(day.habitUnits[item.id])
+    || (day.habits.includes(item.id) ? 1 : 0);
+  day.habitUnits[item.id] = existingUnits + unitsToAdd;
+  if (!day.habits.includes(item.id)) day.habits.push(item.id);
+  item.history ||= {};
+  item.history[date] = true;
+
+  const progress = { count: before.count + unitsToAdd, target: before.target, periodKey: before.periodKey };
+  if (item.frequency === 'weekly') {
+    item.weeklyProgress ||= {};
+    item.weeklyProgress[progress.periodKey] = progress.count;
+  } else {
+    item.monthlyProgress ||= {};
+    item.monthlyProgress[progress.periodKey] = progress.count;
+  }
+
+  let earnedXp = 0;
+  item.periodAwards ||= {};
+  if (progress.count >= progress.target && !item.periodAwards[progress.periodKey]) {
+    earnedXp = xpForHabit(item, state.profile);
+    item.periodAwards[progress.periodKey] = { amount: earnedXp, active: true };
+    addXp(state, earnedXp, notifyEvent);
+  }
+  return { earnedXp, count: progress.count, target: progress.target };
+}
+
+function completePeriodHabitAtOnce(item) {
+  const date = todayLocalISO();
+  const before = getHabitPeriodProgress(state, item, date);
+  if (before.count >= before.target) return;
+  const result = recordPeriodHabitProgress(item, before.target - before.count);
+  state.profile.lastActiveDate = date;
+  state.heatmap[date] = { complete: true };
+  persist();
+  renderAll();
+  toast(`Objetivo completado de una vez · ${result.count}/${result.target} · +${result.earnedXp} XP`);
 }
 
 function updateDailyCompletionBonus(day) {
@@ -296,7 +352,7 @@ function renderHomeSkillButton(skill) {
 function renderHomePeriodPanel(period, title, deadline, items) {
   const section = panel(title, deadline);
   section.classList.add('home-period-panel');
-  if (items.length) items.forEach(item => section.append(renderQuest(item, 'habits')));
+  if (items.length) items.forEach(item => appendHabitQuest(section, item));
   else section.append(emptyText(`No hay ${period === 'weekly' ? 'hábitos semanales' : 'hábitos mensuales'} activos.`));
   return section;
 }
@@ -308,8 +364,9 @@ function renderWeeklySkill() {
   const current = state.weeklySkill.current;
   const currentPanel = panel('Enfoques actuales', weekRangeLabel(current.weekKey));
   currentPanel.append(button('Añadir habilidad', 'button-primary', () => openWeeklySkillForm(), 'brain'));
+  const canMarkCompleted = parseDateKey(todayLocalISO()).getDay() === 0;
   if (current.skills.length) {
-    for (const skill of current.skills) currentPanel.append(renderWeeklySkillCard(skill, false));
+    for (const skill of current.skills) currentPanel.append(renderWeeklySkillCard(skill, false, canMarkCompleted));
   } else {
     currentPanel.append(emptyText('Todavía no has añadido una habilidad para esta semana.'));
   }
@@ -325,10 +382,29 @@ function renderWeeklySkill() {
   root.append(previousPanel);
 }
 
-function renderWeeklySkillCard(skill, readOnly) {
+function renderWeeklySkillCard(skill, readOnly, canMarkCompleted = false) {
   const card = element('article', 'weekly-skill-card');
   card.append(element('h3', 'weekly-skill-title', skill.title));
   card.append(element('p', 'muted weekly-skill-description', skill.description || 'Sin descripción.'));
+  if (readOnly) {
+    card.append(element('p', `weekly-skill-status ${skill.completed ? 'completed' : 'pending'}`,
+      skill.completed ? 'HABILIDAD COMPLETADA' : 'PENDIENTE · TRASLADADA A ESTA SEMANA'));
+  } else if (canMarkCompleted) {
+    const completion = checkboxControl('Completé esta habilidad esta semana', skill.completed === true);
+    completion.wrapper.classList.add('weekly-skill-completion');
+    completion.input.addEventListener('change', () => {
+      skill.completed = completion.input.checked;
+      persist();
+      renderWeeklySkill();
+      toast(skill.completed ? 'Habilidad marcada como completada.' : 'Se actualizó el estado de la habilidad.');
+    });
+    card.append(completion.wrapper);
+  } else {
+    card.append(element('p', 'muted small weekly-skill-deadline', 'El domingo podrás marcar si completaste esta habilidad.'));
+  }
+  if (!readOnly && skill.carriedFromWeek) {
+    card.append(element('p', 'muted small weekly-skill-carried', 'Pendiente de la semana anterior; se conservará hasta completarla.'));
+  }
   if (!readOnly) {
     const actions = element('div', 'item-actions');
     actions.append(
@@ -362,7 +438,9 @@ function openWeeklySkillForm(existing) {
     const skill = {
       id: existing?.id || id('skill'),
       title: cleanTitle.slice(0, 120),
-      description: description.input.value.trim().slice(0, 2000)
+      description: description.input.value.trim().slice(0, 2000),
+      completed: existing?.completed === true,
+      ...(existing?.carriedFromWeek ? { carriedFromWeek: existing.carriedFromWeek } : {})
     };
     if (existing) Object.assign(existing, skill);
     else state.weeklySkill.current.skills.push(skill);
@@ -388,13 +466,20 @@ function metric(label, value) {
 }
 
 function renderQuest(item, kind, mandatory = false) {
-  const checked = isDone(kind, item.id);
+  const periodProgress = kind === 'habits' && (item.frequency === 'weekly' || item.frequency === 'monthly')
+    ? getHabitPeriodProgress(state, item)
+    : null;
+  const completedToday = isDone(kind, item.id);
+  const completedPeriod = Boolean(periodProgress && periodProgress.count >= periodProgress.target);
+  const checked = completedToday || completedPeriod;
   const row = element('label', `quest-row ${mandatory ? 'mandatory' : ''} ${checked ? 'completed' : ''}`);
   const checkbox = element('input', 'quest-check');
   checkbox.type = 'checkbox';
   checkbox.checked = checked;
   checkbox.disabled = checked;
-  checkbox.setAttribute('aria-label', checked ? `${item.name}, completado hoy` : `Completar ${item.name}`);
+  checkbox.setAttribute('aria-label', completedPeriod
+    ? `${item.name}, objetivo cumplido este periodo`
+    : completedToday ? `${item.name}, completado hoy` : `Completar ${item.name}`);
   checkbox.addEventListener('change', () => toggleCompletion(kind, item, checkbox.checked));
   const mark = element('span', 'custom-check');
   const content = element('span', 'quest-content');
@@ -406,15 +491,32 @@ function renderQuest(item, kind, mandatory = false) {
     meta.append(element('span', 'muted small', `+${Math.round(NON_NEGOTIABLE_XP_RATE * 100)}% del XP requerido para este nivel`));
   }
   else {
-    if (item.frequency !== 'daily') {
-      const progress = progressCount(item);
-      const progressLabel = item.frequency === 'weekly' ? `${progress.count}/${progress.target}` : String(progress.count);
-      meta.append(element('span', 'period-count', progressLabel), element('span', 'muted tiny', progress.label));
+    if (periodProgress) {
+      const label = item.frequency === 'weekly' ? 'esta semana' : 'este mes';
+      meta.append(element('span', 'period-count', `${periodProgress.count}/${periodProgress.target}`), element('span', 'muted tiny', label));
     }
     meta.append(element('span', 'muted small', `+${xpForHabit(item, state.profile)} XP`));
   }
   row.append(checkbox, mark, content, meta);
   return row;
+}
+
+function renderCompletePeriodButton(item) {
+  const progress = getHabitPeriodProgress(state, item);
+  if (progress.count >= progress.target) return null;
+  const action = button('Completo', 'button-small complete-period-button', () => completePeriodHabitAtOnce(item));
+  action.setAttribute('aria-label', `Completar de una vez el objetivo de ${item.name}, actualmente ${progress.count} de ${progress.target}`);
+  return action;
+}
+
+function appendHabitQuest(container, item) {
+  const row = element('div', 'period-quest-row');
+  row.append(renderQuest(item, 'habits'));
+  if (item.frequency !== 'daily') {
+    const completeButton = renderCompletePeriodButton(item);
+    if (completeButton) row.append(completeButton);
+  }
+  container.append(row);
 }
 
 function renderPenaltyModal() {
@@ -605,7 +707,7 @@ function habitCard(habit) {
   title.append(element('p', 'muted small', `${cat?.name || 'Sin categoría'} · ${frequencyLabel(habit)} · ${difficultyLabel(habit)} · +${xpForHabit(habit, state.profile)} XP`));
   if (habit.description) title.append(element('p', 'muted item-description', habit.description));
   const progress = progressCount(habit);
-  const progressLabel = habit.frequency === 'monthly' ? `${progress.count} ${progress.label}` : `${progress.count}/${progress.target} ${progress.label}`;
+  const progressLabel = `${progress.count}/${progress.target} ${progress.label}`;
   title.append(element('p', 'period-progress', progressLabel));
   main.append(marker, title);
   const actions = element('div', 'item-actions');
@@ -778,21 +880,41 @@ function openHabitForm(existing) {
   const category = selectControl('Categoría', state.categories.map(c => [c.id, c.name]), existing?.categoryId || state.categories[0]?.id || '');
   const frequency = selectControl('Frecuencia', [['daily', 'Diario'], ['weekly', 'Semanal'], ['monthly', 'Mensual']], existing?.frequency || 'daily');
   const difficulty = selectControl('Dificultad', [['easy', 'Fácil'], ['medium', 'Media'], ['hard', 'Difícil']], existing?.difficulty || 'medium');
-  const target = inputControl('Objetivo semanal (veces)', 'number', existing?.weeklyTarget || 3);
+  const getTargetDefault = value => {
+    if (existing?.frequency === value) return value === 'weekly' ? Number(existing.weeklyTarget) || 1 : Number(existing.monthlyTarget) || 1;
+    return value === 'weekly' ? 3 : 8;
+  };
+  const target = inputControl('Objetivo semanal (veces)', 'number', getTargetDefault(frequency.value));
   target.input.min = '1'; target.input.max = '99';
   const active = checkboxControl('Misión activa', existing?.active !== false);
-  const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad y frecuencia: diario 1×, semanal 2× y mensual 3× la recompensa base (fácil 10%, media 15%, difícil 25% del XP para subir de nivel). La recompensa escala con tu nivel y no se puede editar.');
+  const xpExplanation = element('p', 'muted small field-help', 'XP automático por dificultad y frecuencia: diario 1×, semanal 2× y mensual 3× la recompensa base (fácil 10%, media 15%, difícil 25% del XP para subir de nivel). En objetivos semanales y mensuales, la recompensa se entrega una sola vez al alcanzar el objetivo completo. La recompensa escala con tu nivel y no se puede editar.');
   const deadlineHint = element('p', 'muted small field-help');
   form.append(name.wrapper, description.wrapper, category.fieldWrapper, frequency.fieldWrapper, difficulty.fieldWrapper, xpExplanation, deadlineHint, target.wrapper, active.wrapper);
+  let targetFrequency = frequency.value;
   const updateTargetField = () => {
-    target.wrapper.hidden = frequency.value !== 'weekly';
-    target.wrapper.querySelector('.target-hint')?.remove();
-    if (frequency.value === 'weekly') target.wrapper.append(element('span', 'muted small target-hint', 'Ejemplo: entrenar 3 veces antes de que termine la semana.'));
-    if (frequency.value === 'weekly') deadlineHint.textContent = 'Cumple el objetivo antes de que cierre la semana el domingo.';
-    else if (frequency.value === 'monthly') {
+    const selectedFrequency = frequency.value;
+    const hasTarget = selectedFrequency === 'weekly' || selectedFrequency === 'monthly';
+    target.wrapper.hidden = !hasTarget;
+    target.input.required = hasTarget;
+    target.wrapper.querySelector('.field-label').textContent = selectedFrequency === 'monthly'
+      ? 'Objetivo mensual (veces)'
+      : 'Objetivo semanal (veces)';
+    if (targetFrequency !== selectedFrequency) {
+      target.input.value = String(getTargetDefault(selectedFrequency));
+      targetFrequency = selectedFrequency;
+    }
+    target.wrapper.querySelectorAll('.target-hint').forEach(hint => hint.remove());
+    if (selectedFrequency === 'weekly') {
+      target.wrapper.append(element('span', 'muted small target-hint', 'Ejemplo: completar 3 veces antes de que termine la semana.'));
+      deadlineHint.textContent = 'Cumple el objetivo antes de que cierre la semana el domingo.';
+    } else if (selectedFrequency === 'monthly') {
+      target.wrapper.append(element('span', 'muted small target-hint', 'Ejemplo: completar 8 veces durante el mes.'));
       const lastDay = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 12);
-      deadlineHint.textContent = `Completa esta misión al menos una vez antes del ${dateLabel(todayLocalISO(lastDay))}.`;
+      deadlineHint.textContent = `Cumple el objetivo mensual antes del ${dateLabel(todayLocalISO(lastDay))}.`;
     } else deadlineHint.textContent = 'Completa esta misión cada día.';
+    if (existing && existing.frequency === selectedFrequency && hasPeriodProgress(existing)) {
+      target.wrapper.append(element('span', 'muted small target-hint', `El objetivo de este periodo ya está fijado en ${getHabitPeriodProgress(state, existing).target}; los cambios aplicarán al siguiente periodo.`));
+    }
   };
   frequency.addEventListener('change', updateTargetField);
   updateTargetField();
@@ -807,12 +929,18 @@ function openHabitForm(existing) {
     delete habit.reminderTime;
     if (selectedFrequency === 'weekly') habit.weeklyTarget = Number(target.input.value) || 1;
     else delete habit.weeklyTarget;
-    delete habit.monthlyTarget;
+    if (selectedFrequency === 'monthly') habit.monthlyTarget = Number(target.input.value) || 1;
+    else delete habit.monthlyTarget;
     if (!habit.name || !habit.categoryId) { toast('Completa el nombre y crea o selecciona una categoría.'); return false; }
     if (existing) Object.assign(existing, habit); else state.habits.push(habit);
     if (currentView === 'habits') habitFrequencyOpen[selectedFrequency] = true;
     persist(); renderCurrent(); return true;
   });
+}
+
+function hasPeriodProgress(habit) {
+  return (habit.frequency === 'weekly' || habit.frequency === 'monthly')
+    && getHabitPeriodProgress(state, habit).count > 0;
 }
 
 function openNonNegotiableForm(existing) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sistema-cache-v15';
+const CACHE_NAME = 'sistema-cache-v18';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './manifest.json',
   './js/gamification.js', './js/icons.js', './js/state.js', './js/storage.js', './js/ui.js', './js/utils.js',

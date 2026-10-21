@@ -126,7 +126,7 @@ main { padding: 24px 18px 30px; }
 .period-progress { margin: 8px 0 0; color: #d8b4fe; font-size: 12px; }
 .period-quest-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid rgba(168, 85, 247, .12); }
 .period-quest-row > .quest-row { min-width: 0; flex: 1; border-top: 0; }
-.complete-period-button { min-width: 104px; min-height: 40px; flex: 0 0 auto; padding: 6px 8px; border-color: rgba(192, 132, 252, .42); color: #e9d5ff; font-size: 10px; }
+.complete-period-button { min-width: 82px; min-height: 36px; flex: 0 0 auto; padding: 5px 7px; border-color: rgba(192, 132, 252, .42); color: #e9d5ff; font-size: 9px; }
 .weekly-skill-completion { margin: 12px 0 0; padding: 9px 10px; border: 1px solid rgba(168, 85, 247, .3); border-radius: 6px; background: rgba(124, 58, 237, .09); }
 .weekly-skill-status { margin: 11px 0 0; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
 .weekly-skill-status.completed { color: #86efac; }

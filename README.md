@@ -4,7 +4,7 @@ SISTEMA es una aplicación progresiva de hábitos para móvil. Convierte tus com
 
 ## Características principales
 
-- Misiones diarias, semanales y mensuales, no negociables, categorías editables y penalizaciones.
+- Misiones diarias, semanales y mensuales, no negociables, categorías editables y penalizaciones. En Inicio, los hábitos se agrupan por categoría dentro de cada frecuencia para facilitar su identificación.
 - Inicio permite marcar todas las misiones de hoy; en Hábitos se gestionan las misiones y, en un apartado propio, sus categorías.
 - La pestaña Habilidad permite guardar varias habilidades semanales con título y descripción, editarlas o eliminarlas; Inicio muestra solo cada título. El domingo se puede marcar si cada habilidad fue completada. Las pendientes pasan a la semana siguiente y quedan registradas en el historial semanal.
 - El XP no es editable: dificultad fácil/media/difícil otorga 10%/15%/25% del XP requerido para el siguiente nivel. La frecuencia multiplica esa recompensa: diario 1×, semanal 2× y mensual 3×.

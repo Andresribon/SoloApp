@@ -316,7 +316,7 @@ function renderHome() {
   if (nonNeg.length) nonNeg.forEach(item => missionPanel.append(renderQuest(item, 'nonNegotiables', true)));
   else missionPanel.append(emptyText('Aún no has definido misiones no negociables.'));
   missionPanel.append(element('h3', 'eyebrow mission-group-label', 'HÁBITOS DIARIOS'));
-  if (dailyItems.length) dailyItems.forEach(item => missionPanel.append(renderQuest(item, 'habits')));
+  if (dailyItems.length) appendCategorizedHabitQuests(missionPanel, dailyItems);
   else missionPanel.append(emptyText('No hay hábitos diarios activos.'));
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 12);
   missionPanel.append(element('p', 'muted small daily-bonus-hint', `Bonus diario: ${Math.round(DAILY_COMPLETION_BONUS_RATE * 100)}% del requisito de XP del nivel actual al completar todos los hábitos diarios y no negociables. Solo se obtiene una vez por día.`));
@@ -340,9 +340,35 @@ function renderHomeSkillButton(skill) {
 function renderHomePeriodPanel(period, title, deadline, items) {
   const section = panel(title, deadline);
   section.classList.add('home-period-panel');
-  if (items.length) items.forEach(item => appendHabitQuest(section, item));
+  if (items.length) appendCategorizedHabitQuests(section, items);
   else section.append(emptyText(`No hay ${period === 'weekly' ? 'hábitos semanales' : 'hábitos mensuales'} activos.`));
   return section;
+}
+
+function appendCategorizedHabitQuests(container, items) {
+  const knownCategories = state.categories
+    .map(category => ({
+      category,
+      habits: items.filter(habit => habit.categoryId === category.id)
+    }))
+    .filter(group => group.habits.length);
+  const uncategorized = items.filter(habit => !state.categories.some(category => category.id === habit.categoryId));
+  if (uncategorized.length) knownCategories.push({ category: null, habits: uncategorized });
+
+  for (const { category, habits } of knownCategories) {
+    const group = element('section', 'habit-category-group home-habit-category-group');
+    const categoryHeading = element('h3', 'habit-category-heading');
+    if (category) {
+      const marker = element('span', 'category-dot');
+      marker.style.backgroundColor = category.color;
+      categoryHeading.append(marker, element('span', '', category.name));
+    } else {
+      categoryHeading.append(element('span', '', 'Sin categoría'));
+    }
+    group.append(categoryHeading);
+    habits.forEach(habit => appendHabitQuest(group, habit));
+    container.append(group);
+  }
 }
 
 function renderWeeklySkill() {

@@ -55,7 +55,53 @@ export function navigate(name) {
 }
 
 function renderAll() {
+  const previousPositions = currentView === 'home' && !shouldReduceMotion()
+    ? captureHomeQuestPositions()
+    : null;
   renderCurrent();
+  if (previousPositions) animateHomeQuestReorder(previousPositions);
+}
+
+function shouldReduceMotion() {
+  return Boolean(state.settings.reduceMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function captureHomeQuestPositions() {
+  return new Map([...document.querySelectorAll('#view-home .quest-row[data-home-order-key]')].map(row => [
+    row.dataset.homeOrderKey,
+    {
+      top: row.getBoundingClientRect().top,
+      group: row.dataset.homeOrderGroup,
+      completed: row.dataset.homeCompleted === 'true'
+    }
+  ]));
+}
+
+function animateHomeQuestReorder(previousPositions) {
+  if (shouldReduceMotion()) return;
+  for (const row of document.querySelectorAll('#view-home .quest-row[data-home-order-key]')) {
+    const previous = previousPositions.get(row.dataset.homeOrderKey);
+    if (!previous || previous.group !== row.dataset.homeOrderGroup || typeof row.animate !== 'function') continue;
+    const offset = previous.top - row.getBoundingClientRect().top;
+    if (Math.abs(offset) < 1) continue;
+
+    const completedNow = !previous.completed && row.dataset.homeCompleted === 'true';
+    row.animate([
+      {
+        transform: `translateY(${offset}px) scale(${completedNow ? 0.98 : 1})`,
+        filter: completedNow ? 'brightness(1.45)' : 'brightness(1.12)',
+        boxShadow: '0 0 18px rgba(168, 85, 247, .36)'
+      },
+      {
+        transform: 'translateY(0) scale(1)',
+        filter: 'brightness(1)',
+        boxShadow: '0 0 0 rgba(168, 85, 247, 0)'
+      }
+    ], {
+      duration: completedNow ? 620 : 500,
+      easing: 'cubic-bezier(.22, 1, .36, 1)'
+    });
+  }
 }
 
 function renderCurrent() {
@@ -313,7 +359,12 @@ function renderHome() {
   );
   missionPanel.append(flexStatus);
   missionPanel.append(element('h3', 'eyebrow mission-group-label', 'NO NEGOCIABLES'));
-  if (nonNeg.length) nonNeg.forEach(item => missionPanel.append(renderQuest(item, 'nonNegotiables', true)));
+  if (nonNeg.length) {
+    const orderedNonNegotiables = nonNeg
+      .map((item, index) => ({ item, index, completed: isDone('nonNegotiables', item.id, date) }))
+      .sort((a, b) => Number(a.completed) - Number(b.completed) || a.index - b.index);
+    orderedNonNegotiables.forEach(({ item }) => missionPanel.append(renderQuest(item, 'nonNegotiables', true, 'non-negotiables')));
+  }
   else missionPanel.append(emptyText('Aún no has definido misiones no negociables.'));
   missionPanel.append(element('h3', 'eyebrow mission-group-label', 'HÁBITOS DIARIOS'));
   if (dailyItems.length) appendCategorizedHabitQuests(missionPanel, dailyItems);
@@ -357,6 +408,7 @@ function appendCategorizedHabitQuests(container, items) {
 
   for (const { category, habits } of knownCategories) {
     const group = element('section', 'habit-category-group home-habit-category-group');
+    group.dataset.orderGroup = `${habits[0].frequency}:${category?.id || 'uncategorized'}`;
     const categoryHeading = element('h3', 'habit-category-heading');
     if (category) {
       const marker = element('span', 'category-dot');
@@ -366,9 +418,18 @@ function appendCategorizedHabitQuests(container, items) {
       categoryHeading.append(element('span', '', 'Sin categoría'));
     }
     group.append(categoryHeading);
-    habits.forEach(habit => appendHabitQuest(group, habit));
+    const orderedHabits = habits
+      .map((habit, index) => ({ habit, index, completed: isHomeHabitCompleted(habit) }))
+      .sort((a, b) => Number(a.completed) - Number(b.completed) || a.index - b.index);
+    orderedHabits.forEach(({ habit }) => appendHabitQuest(group, habit));
     container.append(group);
   }
+}
+
+function isHomeHabitCompleted(habit, date = todayLocalISO()) {
+  if (habit.frequency === 'daily') return isDone('habits', habit.id, date);
+  const progress = getHabitPeriodProgress(state, habit, date);
+  return progress.count >= progress.target;
 }
 
 function renderWeeklySkill() {
@@ -479,14 +540,17 @@ function metric(label, value) {
   return box;
 }
 
-function renderQuest(item, kind, mandatory = false, hideCheckbox = false) {
+function renderQuest(item, kind, mandatory = false, homeOrderGroup = '') {
   const periodProgress = kind === 'habits' && (item.frequency === 'weekly' || item.frequency === 'monthly')
     ? getHabitPeriodProgress(state, item)
     : null;
   const completedToday = isDone(kind, item.id);
   const completedPeriod = Boolean(periodProgress && periodProgress.count >= periodProgress.target);
   const checked = completedToday || completedPeriod;
-  const row = element(hideCheckbox ? 'div' : 'label', `quest-row ${mandatory ? 'mandatory' : ''} ${checked ? 'completed' : ''}`);
+  const row = element('label', `quest-row ${mandatory ? 'mandatory' : ''} ${checked ? 'completed' : ''}`);
+  row.dataset.homeOrderKey = `${kind}:${item.id}`;
+  row.dataset.homeOrderGroup = homeOrderGroup;
+  row.dataset.homeCompleted = String(periodProgress ? completedPeriod : completedToday);
   const checkbox = element('input', 'quest-check');
   checkbox.type = 'checkbox';
   checkbox.checked = checked;
@@ -495,7 +559,7 @@ function renderQuest(item, kind, mandatory = false, hideCheckbox = false) {
     ? `${item.name}, objetivo cumplido este periodo`
     : completedToday ? `${item.name}, completado hoy` : `Completar ${item.name}`);
   checkbox.addEventListener('change', () => toggleCompletion(kind, item, checkbox.checked));
-  const mark = hideCheckbox ? null : element('span', 'custom-check');
+  const mark = element('span', 'custom-check');
   const content = element('span', 'quest-content');
   content.append(element('strong', '', item.name));
   if (item.description) content.append(element('span', 'muted small', item.description));
@@ -511,14 +575,13 @@ function renderQuest(item, kind, mandatory = false, hideCheckbox = false) {
     }
     meta.append(element('span', 'muted small', `+${xpForHabit(item, state.profile)} XP`));
   }
-  if (!hideCheckbox) row.append(checkbox, mark);
-  row.append(content, meta);
+  row.append(checkbox, mark, content, meta);
   return row;
 }
 
 function appendHabitQuest(container, item) {
   const row = element('div', 'period-quest-row');
-  row.append(renderQuest(item, 'habits'));
+  row.append(renderQuest(item, 'habits', false, container.dataset.orderGroup));
   container.append(row);
 }
 
